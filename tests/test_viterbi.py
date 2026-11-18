@@ -30,3 +30,21 @@ def test_tie_break_is_deterministic():
     point = [GPSPoint(0, 0, 1, 0)]
     candidates = [CandidateScore("trip", 0, 2, 0.5), CandidateScore("trip", 0, 0, 0.5)]
     assert decoder.decode("trip", point, candidates).decoded_arc_ids == [0]
+
+
+def test_viterbi_restarts_only_when_no_candidate_can_continue():
+    decoder = HMMDecoder(_graph(), DecoderConfig(transition_distance_scale_m=5.0))
+    points = [GPSPoint(0, 0, 1, 0), GPSPoint(1, 1, 13, 0), GPSPoint(2, 2, 14, 0)]
+    candidates = [
+        CandidateScore("trip", 0, 0, 1.0),
+        CandidateScore("trip", 1, 1, 0.55),
+        CandidateScore("trip", 1, 2, 0.45),
+        CandidateScore("trip", 2, 2, 1.0),
+    ]
+    result = decoder.decode("trip", points, candidates)
+    assert result.decoded_arc_ids == [0, 1, 2]
+    assert result.expanded_route_segments == [[0, 1], [2]]
+    assert [
+        warning.gps_point_idx for warning in result.warnings
+        if warning.code == "ALL_PREDECESSORS_UNREACHABLE"
+    ] == [2]

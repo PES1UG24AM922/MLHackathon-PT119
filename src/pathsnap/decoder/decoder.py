@@ -172,11 +172,13 @@ class HMMDecoder:
             current = points[time_idx]
             current_scores: dict[int, float] = {}
             current_backpointers: dict[int, int | None] = {}
-            for current_state in emissions[current.gps_point_idx]:
+            current_states = emissions[current.gps_point_idx]
+            for current_state in current_states:
                 best_score = -math.inf
                 best_prior_arc: int | None = None
-                disconnected_count = 0
                 for prior_arc, prior_score in scores[-1].items():
+                    if not math.isfinite(prior_score):
+                        continue
                     prior_state = state_maps[-1][prior_arc]
                     transition = self.transitions.score(
                         prior,
@@ -186,32 +188,35 @@ class HMMDecoder:
                         prior_state.projection_ratio,
                         current_state.projection_ratio,
                     )
-                    if transition.disconnected:
-                        disconnected_count += 1
                     candidate_score = (
                         prior_score
                         + transition.log_probability
                         + self.config.emission_weight * current_state.log_emission
                     )
-                    if self._better(candidate_score, prior_arc, best_score, best_prior_arc):
+                    if math.isfinite(candidate_score) and self._better(
+                        candidate_score, prior_arc, best_score, best_prior_arc
+                    ):
                         best_score = candidate_score
                         best_prior_arc = prior_arc
-                if best_prior_arc is None:
-                    # No directed path enters this state. Start a fresh route
-                    # segment rather than stitching it through an unreachable arc.
-                    best_score = self.config.emission_weight * current_state.log_emission
-                    warnings.append(
-                        DecoderWarning(
-                            "ALL_PREDECESSORS_UNREACHABLE",
-                            current.gps_point_idx,
-                            "Started a new Viterbi segment at this state.",
-                        )
-                    )
                 current_scores[current_state.arc_id] = best_score
                 current_backpointers[current_state.arc_id] = best_prior_arc
+
+            # A restart applies to the observation as a whole once no path can continue.
+            if all(prior_arc is None for prior_arc in current_backpointers.values()):
+                current_scores = {
+                    state.arc_id: self.config.emission_weight * state.log_emission
+                    for state in current_states
+                }
+                warnings.append(
+                    DecoderWarning(
+                        "ALL_PREDECESSORS_UNREACHABLE",
+                        current.gps_point_idx,
+                        "Started a new Viterbi segment at this observation.",
+                    )
+                )
             scores.append(current_scores)
             backpointers.append(current_backpointers)
-            state_maps.append({state.arc_id: state for state in emissions[current.gps_point_idx]})
+            state_maps.append({state.arc_id: state for state in current_states})
 
         last_arc = min(scores[-1], key=lambda arc_id: (-scores[-1][arc_id], arc_id))
         selected_arcs: list[int] = [last_arc]
