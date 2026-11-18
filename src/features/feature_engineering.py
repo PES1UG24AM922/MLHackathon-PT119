@@ -132,8 +132,6 @@ def extract_features_for_trip(tc: TripCandidates) -> pd.DataFrame:
             "trip_id": tc.trip_id,
             "pt_idx": pt_idx,
             "cand_arc_id": arc_id,
-            "gt_arc_id": tc.gt_arc_ids[pt_idx],
-            "is_true_arc": tc.is_true_arc,
             "perp_dist_m": tc.perp_dist_m,
             "proj_ratio": tc.proj_ratio,
             "dist_to_from_node_m": dist_to_from,
@@ -147,6 +145,9 @@ def extract_features_for_trip(tc: TripCandidates) -> pd.DataFrame:
             "next_pt_dist_m": next_pt_dist,
         }
     )
+    if tc.gt_arc_ids is not None:
+        df["gt_arc_id"] = tc.gt_arc_ids[pt_idx]
+        df["is_true_arc"] = tc.is_true_arc
 
     grp = df.groupby("pt_idx")["perp_dist_m"]
     df["perp_dist_diff_min_m"] = df["perp_dist_m"] - grp.transform("min")

@@ -44,6 +44,8 @@ def build_feature_datasets(
         split_dir = data_root / split
         for tid in list_trip_ids(split_dir):
             trip = load_trip(split, tid, split_dir)
+            if trip.route is None or not len(trip.route):
+                raise ValueError(f"Missing reference route for {split}/{tid}")
             tc = generate_candidates_for_trip(
                 trip, radius_m=radius_m, max_candidates=max_candidates
             )

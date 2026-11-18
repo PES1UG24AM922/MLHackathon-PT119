@@ -1,8 +1,9 @@
 # PathSnap
 
-This repository contains the team implementation for PathSnap.  The current
-module is Person 3's directed HMM/Viterbi route decoder.  It is intentionally
-separated into a label-free inference package and offline evaluation scripts.
+PathSnap uses a trained candidate scorer and a directed HMM/Viterbi decoder
+to reconstruct a route from GPS observations. See the [two-laptop runbook](docs/demo.md)
+for FastAPI, the trip selection UI, and the student-test acceptance checks.
+The decoder package also has standalone scripts for offline experiments.
 
 ## Quick start
 
