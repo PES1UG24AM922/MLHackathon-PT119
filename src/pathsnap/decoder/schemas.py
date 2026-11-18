@@ -32,6 +32,7 @@ class CandidateScore:
     candidate_arc_id: int
     probability: float
     candidate_miss: bool = False
+    projection_ratio: float | None = None
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,8 @@ class DecodeResult:
     decoded_points: list[DecodedPoint]
     compact_route_arc_ids: list[int]
     expanded_route_arc_ids: list[int]
+    compact_route_segments: list[list[int]] = field(default_factory=list)
+    expanded_route_segments: list[list[int]] = field(default_factory=list)
     warnings: list[DecoderWarning] = field(default_factory=list)
     inference_time_ms: float = 0.0
     decoder_version: str = ""

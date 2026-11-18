@@ -59,7 +59,9 @@ from_node_id,to_node_id
 trip_id,gps_point_idx,candidate_arc_id,calibrated_probability,candidate_miss
 ```
 
-`reference_labels.csv` is **offline evaluation only**:
+`reference_labels.csv` is **offline evaluation only**. Its manifest entry is
+ignored by prediction loaders unless an offline script explicitly requests
+labels:
 
 ```text
 gps_point_idx,reference_arc_id
@@ -138,9 +140,10 @@ request call:
 result = decoder.decode(trip_id, gps_points, candidate_scores)
 ```
 
-Return predicted route geometry, per-point predicted arc IDs when appropriate,
-warnings, decoder version, and elapsed time. Evaluate against reference labels
-only in a separate server-side evaluator; never return those labels to the UI.
+Return predicted route geometry segmented at gaps/unreachable transitions,
+per-point predicted arc IDs when appropriate, warnings, decoder version, and
+elapsed time. Evaluate against reference labels only in a separate server-side
+evaluator; never return those labels to the UI.
 
 ## Current integration gate
 

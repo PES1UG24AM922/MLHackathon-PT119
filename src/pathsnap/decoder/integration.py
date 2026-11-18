@@ -137,6 +137,11 @@ def candidate_scores_from_feature_frame(
                 candidate_arc_id=int(row.cand_arc_id),
                 probability=float(probability),
                 candidate_miss=bool(getattr(row, "candidate_miss", False)),
+                projection_ratio=(
+                    float(getattr(row, "proj_ratio"))
+                    if hasattr(row, "proj_ratio") and pd.notna(getattr(row, "proj_ratio"))
+                    else None
+                ),
             )
         )
     return scores, metadata

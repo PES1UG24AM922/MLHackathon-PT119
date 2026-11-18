@@ -12,7 +12,13 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pathsnap.decoder import DecoderConfig, HMMDecoder  # noqa: E402
 from pathsnap.decoder.emissions import classifier_only_predictions, prepare_emissions  # noqa: E402
-from pathsnap.decoder.evaluation import candidate_miss_rate, evaluate_predictions, result_prediction_map  # noqa: E402
+from pathsnap.decoder.evaluation import (  # noqa: E402
+    evaluate_predictions,
+    final_candidate_miss_rate,
+    prediction_segment_map,
+    result_prediction_map,
+    result_segment_map,
+)
 from pathsnap.decoder.experiments import load_offline_trip  # noqa: E402
 from pathsnap.decoder.io import read_manifest  # noqa: E402
 
@@ -33,17 +39,29 @@ def main() -> None:
             continue
         trip = load_offline_trip(entry, manifest_path.parent, require_labels=True)
         emissions, _ = prepare_emissions(trip.candidates, config)
-        flags = {}
-        for candidate in trip.candidates:
-            flags[candidate.gps_point_idx] = flags.get(candidate.gps_point_idx, False) or candidate.candidate_miss
-        miss_rate = candidate_miss_rate(flags.values())
+        miss_rate = final_candidate_miss_rate(
+            trip.gps_points, trip.candidates, trip.reference_labels or {}
+        )
         baseline = classifier_only_predictions(emissions)
+        baseline_segments = prediction_segment_map(
+            trip.gps_points, baseline, config.gap_reset_seconds
+        )
         baseline_metrics = evaluate_predictions(
-            baseline, trip.reference_labels or {}, trip.graph, trip.gps_points, candidate_miss_rate=miss_rate
+            baseline,
+            trip.reference_labels or {},
+            trip.graph,
+            trip.gps_points,
+            candidate_miss_rate=miss_rate,
+            segment_ids=baseline_segments,
         )
         result = HMMDecoder(trip.graph, config).decode(trip.trip_id, trip.gps_points, trip.candidates)
         hmm_metrics = evaluate_predictions(
-            result_prediction_map(result), trip.reference_labels or {}, trip.graph, trip.gps_points, candidate_miss_rate=miss_rate
+            result_prediction_map(result),
+            trip.reference_labels or {},
+            trip.graph,
+            trip.gps_points,
+            candidate_miss_rate=miss_rate,
+            segment_ids=result_segment_map(result),
         )
         for method, metrics in (("classifier_only", baseline_metrics), ("hmm_viterbi", hmm_metrics)):
             rows.append({

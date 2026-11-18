@@ -32,6 +32,8 @@ class TransitionModel:
         current_point: GPSPoint,
         from_arc_id: int,
         to_arc_id: int,
+        from_projection_ratio: float | None = None,
+        to_projection_ratio: float | None = None,
     ) -> TransitionScore:
         dt = current_point.timestamp_s - previous_point.timestamp_s
         if not math.isfinite(dt) or dt <= 0:
@@ -52,20 +54,19 @@ class TransitionModel:
             max(observed_distance * 4.0 + 200.0, self.config.max_plausible_speed_mps * dt * 1.5),
         )
         network_distance = self.graph.transition_network_distance(
-            from_arc_id, to_arc_id, search_cap
+            from_arc_id,
+            to_arc_id,
+            search_cap,
+            from_projection_ratio=from_projection_ratio,
+            to_projection_ratio=to_projection_ratio,
         )
         if network_distance is None:
             return TransitionScore(
-                self.config.disconnected_transition_log_penalty,
+                -math.inf,
                 None,
                 True,
                 False,
             )
-
-        if from_arc_id == to_arc_id:
-            # Exact intra-arc position is unknown. Holding the same directed arc
-            # is normally plausible, so avoid inventing a half-arc movement.
-            network_distance = observed_distance
         residual = abs(network_distance - observed_distance)
         log_score = -residual / self.config.transition_distance_scale_m
         implied_speed = network_distance / dt

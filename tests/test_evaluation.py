@@ -18,3 +18,14 @@ def test_metrics_use_point_level_predictions():
 
 def test_macro_f1_handles_missed_class():
     assert macro_f1([0, 1], [0, 0]) == 1 / 3
+
+
+def test_unmatched_eligible_point_counts_against_accuracy_and_coverage():
+    graph = RoadGraph(
+        np.array([[0, 0], [10, 0]], dtype=float), np.array([[0, 1]], dtype=int)
+    )
+    points = [GPSPoint(0, 0, 0, 0), GPSPoint(1, 1, 10, 0)]
+    metrics = evaluate_predictions({0: 0, 1: None}, {0: 0, 1: 0}, graph, points)
+    assert metrics["top1_accuracy"] == 0.5
+    assert metrics["prediction_coverage"] == 0.5
+    assert metrics["n_unmatched"] == 1

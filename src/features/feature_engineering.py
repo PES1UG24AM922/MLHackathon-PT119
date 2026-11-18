@@ -126,14 +126,11 @@ def extract_features_for_trip(tc: TripCandidates) -> pd.DataFrame:
     )
 
     # Per-point relative features (min distance, rank, count)
-    df = pd.DataFrame(
-        {
+    fields = {
             "split": tc.split,
             "trip_id": tc.trip_id,
             "pt_idx": pt_idx,
             "cand_arc_id": arc_id,
-            "gt_arc_id": tc.gt_arc_ids[pt_idx],
-            "is_true_arc": tc.is_true_arc,
             "perp_dist_m": tc.perp_dist_m,
             "proj_ratio": tc.proj_ratio,
             "dist_to_from_node_m": dist_to_from,
@@ -145,8 +142,12 @@ def extract_features_for_trip(tc: TripCandidates) -> pd.DataFrame:
             "dt_prev_s": dt_pt[pt_idx],
             "prev_pt_dist_m": prev_pt_dist,
             "next_pt_dist_m": next_pt_dist,
-        }
-    )
+    }
+    # Labels are present only in supervised train/development processing.
+    if tc.gt_arc_ids is not None and tc.is_true_arc is not None:
+        fields["gt_arc_id"] = tc.gt_arc_ids[pt_idx]
+        fields["is_true_arc"] = tc.is_true_arc
+    df = pd.DataFrame(fields)
 
     grp = df.groupby("pt_idx")["perp_dist_m"]
     df["perp_dist_diff_min_m"] = df["perp_dist_m"] - grp.transform("min")

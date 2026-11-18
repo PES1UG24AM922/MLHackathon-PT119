@@ -66,7 +66,7 @@ arc IDs, reference-route geometry, and per-point correctness labels are not.
 - `NON_INCREASING_TIMESTAMP`
 - `DUPLICATE_CANDIDATE_DEDUPLICATED`
 - `INVALID_PROBABILITY_CLIPPED`
-- `ALL_PREDECESSORS_DISCONNECTED`
+- `ALL_PREDECESSORS_UNREACHABLE`
 - `DISPLAY_ROUTE_DISCONNECTED`
 
 Person 4 should expose a safe summary of these codes in API logs and UI status,

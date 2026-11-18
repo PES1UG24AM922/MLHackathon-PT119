@@ -10,7 +10,7 @@ from pyproj import Transformer
 from scipy.spatial import cKDTree
 
 from src.eda.data_loader import TripData
-from src.eda.run_eda import get_utm_epsg, project_to_utm
+from src.eda.coordinates import get_utm_epsg, project_to_utm
 
 
 @dataclass
@@ -28,17 +28,17 @@ class TripCandidates:
     u: np.ndarray
     v: np.ndarray
     arc_len_m: np.ndarray
-    gt_arc_ids: np.ndarray
+    gt_arc_ids: np.ndarray | None
     # Flattened candidate arrays
     pt_idx: np.ndarray
     cand_arc_id: np.ndarray
     perp_dist_m: np.ndarray
     proj_ratio: np.ndarray
-    is_true_arc: np.ndarray
+    is_true_arc: np.ndarray | None
     # Summary stats
-    n_missed_gt: int
+    n_missed_gt: int | None
     n_zero_cands: int
-    miss_rate: float
+    miss_rate: float | None
     zero_cand_rate: float
 
 
@@ -140,8 +140,13 @@ def generate_candidates_for_trip(
     radius_m: float = 50.0,
     max_candidates: int = 20,
     sample_step_m: float = 20.0,
+    require_ground_truth: bool = True,
 ) -> TripCandidates:
-    """Project trip to UTM, assign ground-truth arcs, and retrieve candidates within `radius_m`."""
+    """Project a trip and retrieve candidates, with optional supervised labels.
+
+    Set ``require_ground_truth=False`` in the final prediction/API path.  That
+    route never reads `.route`, so evaluator labels cannot enter inference.
+    """
     center_lon = float(trip.track["lon"].median())
     center_lat = float(trip.track["lat"].median())
     epsg = get_utm_epsg(center_lon, center_lat)
@@ -159,10 +164,13 @@ def generate_candidates_for_trip(
     v = trip.arcs["to_node"].to_numpy(dtype=int)
     arc_len_m = np.hypot(node_x[v] - node_x[u], node_y[v] - node_y[u])
 
-    if trip.route is None or len(trip.route) == 0:
+    if require_ground_truth and (trip.route is None or len(trip.route) == 0):
         raise ValueError(f"Trip {trip.split}/{trip.trip_id} has no ground-truth route.")
-
-    gt_arc_ids = assign_ground_truth_arcs(trk_x, trk_y, node_x, node_y, u, v, trip.route)
+    gt_arc_ids = (
+        assign_ground_truth_arcs(trk_x, trk_y, node_x, node_y, u, v, trip.route)
+        if require_ground_truth and trip.route is not None
+        else None
+    )
 
     tree, sample_arc_ids = _build_arc_sample_tree(node_x, node_y, u, v, step_m=sample_step_m)
     query_radius = radius_m + 0.6 * sample_step_m
@@ -200,8 +208,8 @@ def generate_candidates_for_trip(
             dists = np.empty(0, dtype=float)
             ratios = np.empty(0, dtype=float)
 
-        gt_arc = gt_arc_ids[i]
-        if gt_arc not in unique_arcs:
+        gt_arc = int(gt_arc_ids[i]) if gt_arc_ids is not None else None
+        if gt_arc is not None and gt_arc not in unique_arcs:
             n_missed_gt += 1
 
         if len(unique_arcs) == 0:
@@ -225,7 +233,7 @@ def generate_candidates_for_trip(
             unique_arcs = unique_arcs[order]
             dists = dists[order]
             ratios = ratios[order]
-            if gt_arc not in unique_arcs:
+            if gt_arc is not None and gt_arc not in unique_arcs:
                 # Note: if gt_arc was dropped by max_candidates cap, count as missed if not already
                 pass
 
@@ -234,19 +242,20 @@ def generate_candidates_for_trip(
         cand_arcs.append(unique_arcs)
         perp_dists.append(dists)
         proj_ratios.append(ratios)
-        labels.append((unique_arcs == gt_arc).astype(int))
+        if gt_arc is not None:
+            labels.append((unique_arcs == gt_arc).astype(int))
 
     pt_idx_arr = np.concatenate(pt_indices)
     cand_arc_arr = np.concatenate(cand_arcs)
     perp_dist_arr = np.concatenate(perp_dists)
     proj_ratio_arr = np.concatenate(proj_ratios)
-    is_true_arr = np.concatenate(labels)
+    is_true_arr = np.concatenate(labels) if labels else None
 
     n_points = len(trk_x)
     # Exact final miss count: points where no candidate has is_true_arc == 1
     # (which equals n_missed_gt unless truncated by max_candidates)
-    n_hit = int(np.sum(is_true_arr))
-    n_missed_final = n_points - n_hit
+    n_hit = int(np.sum(is_true_arr)) if is_true_arr is not None else 0
+    n_missed_final = n_points - n_hit if is_true_arr is not None else None
 
     return TripCandidates(
         split=trip.split,
@@ -268,6 +277,6 @@ def generate_candidates_for_trip(
         is_true_arc=is_true_arr,
         n_missed_gt=n_missed_final,
         n_zero_cands=n_zero_cands,
-        miss_rate=float(n_missed_final / n_points),
+        miss_rate=float(n_missed_final / n_points) if n_missed_final is not None else None,
         zero_cand_rate=float(n_zero_cands / n_points),
     )
