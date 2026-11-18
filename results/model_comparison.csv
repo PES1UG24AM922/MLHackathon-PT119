@@ -1,0 +1,7 @@
+model,family,needs_scaling,cv_folds,cv_top1_acc_mean,cv_top1_acc_std,cv_macro_f1_mean,cv_macro_f1_std,cv_log_loss_mean,cv_log_loss_std,cv_mean_infer_s,test_top1_acc,test_macro_f1,test_log_loss,full_train_time_s,test_infer_time_s,notes
+MLPClassifier,Neural Network,True,5,0.76458,0.08787,0.89394,0.01153,0.11052,0.01547,0.1132,0.84212,0.90666,0.08685,124.383,0.0554,"2-layer MLP (64, 32) with early stopping"
+RandomForestClassifier,Bagging Ensemble,False,5,0.76513,0.08741,0.89453,0.01124,0.10835,0.01537,1.0447,0.84066,0.9069,0.08592,44.999,0.5946,"100 trees, max_depth=14, max_samples=200k"
+HistGradientBoosting,Gradient Boosting,False,5,0.76385,0.08656,0.89352,0.01131,0.10725,0.01183,1.2268,0.83935,0.90625,0.08749,21.345,1.1313,Histogram-based GBDT (LightGBM-style)
+LogisticRegression,Linear,True,5,0.75961,0.0856,0.88727,0.01173,0.12572,0.01369,0.0208,0.83523,0.89863,0.10467,12.983,0.0249,L2-regularized linear baseline
+ExtraTreesClassifier,Randomized Ensemble,False,5,0.75895,0.08573,0.88716,0.01182,0.11667,0.0162,1.6437,0.83445,0.9033,0.09405,17.654,0.7077,"100 extremely randomized trees, max_depth=16, max_samples=200k"
+KNeighborsClassifier,Instance-Based,True,5,0.74415,0.08616,0.86151,0.02731,0.2067,0.03706,253.2272,0.8202,0.88779,0.15014,0.085,63.5663,kd_tree k=15 distance-weighted (30k stratified train subsample)

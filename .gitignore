@@ -1,7 +1,21 @@
+# Virtual environments and Python caches
 .venv/
 __pycache__/
 *.py[cod]
+*.pyo
 .pytest_cache/
-results/
-data_manifest.json
 *.egg-info/
+.ipynb_checkpoints/
+
+# Raw dataset
+Student folder/
+
+# Large cached feature matrix (>100 MB GitHub limit; regenerate via `python src/features/build_dataset.py`)
+artifacts/feature_datasets.joblib
+
+# Duplicate root copies of files already in eda/
+06_train_trip_00000001_map-1.html
+PathSnap_EDA-1.ipynb
+
+# Machine-specific experiment manifests; commit a sanitized template instead.
+data_manifest.json
