@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "feature_version": "pathsnap-features-v1",
+  "dataset_version": "PathSnap-student-materials",
+  "model_version": "random-forest-5d2bd93",
+  "decoder_version": "1.0.0",
+  "random_seed": 42,
+  "sklearn_version": "1.9.1",
+  "model_file": "artifacts/best_emission_model.joblib",
+  "model_sha256": "060a51ba647ab3457399acb67bf934dfbce9eb3a28a1211ea43c3ea51c1677bd",
+  "decoder_config": "configs/hmm.yaml",
+  "decoder_sha256": "d10d46f6de07adf9b85b67817be653cef07e73ef33d4eedbef7dd8654c523fb8",
+  "score_kind": "uncalibrated",
+  "radius_m": 50.0,
+  "max_candidates": 20
+}

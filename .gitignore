@@ -19,3 +19,5 @@ PathSnap_EDA-1.ipynb
 
 # Machine-specific experiment manifests; commit a sanitized template instead.
 data_manifest.json
+config.local.json
+outputs-local/
