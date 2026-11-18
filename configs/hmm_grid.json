@@ -1,0 +1,6 @@
+{
+  "emission_weight": [0.75, 1.0, 1.25],
+  "transition_distance_scale_m": [20.0, 35.0, 60.0],
+  "max_plausible_speed_mps": [35.0, 55.0],
+  "gap_reset_seconds": [15.0, 30.0, 60.0]
+}

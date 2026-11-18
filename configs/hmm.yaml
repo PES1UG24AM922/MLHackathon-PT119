@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "decoder_version": "1.0.0",
+  "probability_floor": 1e-12,
+  "emission_weight": 1.0,
+  "initial_emission_weight": 1.0,
+  "transition_distance_scale_m": 35.0,
+  "max_plausible_speed_mps": 55.0,
+  "speed_penalty": 3.0,
+  "disconnected_transition_log_penalty": -35.0,
+  "gap_reset_seconds": 30.0,
+  "max_network_search_m": 20000.0,
+  "tie_tolerance": 1e-12
+}
