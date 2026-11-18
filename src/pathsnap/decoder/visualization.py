@@ -50,7 +50,8 @@ def build_folium_map(
     classifier_layer.add_to(route_map)
 
     decoder_layer = folium.FeatureGroup(name="HMM/Viterbi predicted route", show=True)
-    _add_arcs(decoder_layer, graph, decoded_result.expanded_route_arc_ids, "#7c3aed", 4)
+    for segment in decoded_result.expanded_route_segments:
+        _add_arcs(decoder_layer, graph, segment, "#7c3aed", 4)
     decoder_layer.add_to(route_map)
 
     if reference_arc_ids is not None:

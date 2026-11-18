@@ -110,5 +110,25 @@ def build_feature_datasets(
     return train_df, test_df
 
 
+def build_inference_features(
+    trip,
+    radius_m: float = 50.0,
+    max_candidates: int = 20,
+) -> tuple[pd.DataFrame, object]:
+    """Build Person 2-compatible features without opening or requiring `.route`.
+
+    Person 4 should call this path for every evaluator/API request. Supervised
+    route alignment and label construction remain exclusively in the training
+    dataset builder above.
+    """
+    candidates = generate_candidates_for_trip(
+        trip,
+        radius_m=radius_m,
+        max_candidates=max_candidates,
+        require_ground_truth=False,
+    )
+    return extract_features_for_trip(candidates), candidates
+
+
 if __name__ == "__main__":
     build_feature_datasets()

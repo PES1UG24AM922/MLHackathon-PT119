@@ -16,6 +16,7 @@ class EmissionState:
     arc_id: int
     probability: float
     log_emission: float
+    projection_ratio: float | None
 
 
 def prepare_emissions(
@@ -27,7 +28,7 @@ def prepare_emissions(
     k-nearest-neighbour queries.  Keeping the highest score is deterministic
     and avoids duplicate HMM states.
     """
-    grouped: dict[int, dict[int, float]] = defaultdict(dict)
+    grouped: dict[int, dict[int, CandidateScore]] = defaultdict(dict)
     warnings: list[DecoderWarning] = []
     trip_ids = set()
     for candidate in candidates:
@@ -42,6 +43,14 @@ def prepare_emissions(
                 )
             )
             probability = config.probability_floor
+        normalized_candidate = CandidateScore(
+            trip_id=candidate.trip_id,
+            gps_point_idx=candidate.gps_point_idx,
+            candidate_arc_id=candidate.candidate_arc_id,
+            probability=probability,
+            candidate_miss=candidate.candidate_miss,
+            projection_ratio=candidate.projection_ratio,
+        )
         existing = grouped[candidate.gps_point_idx].get(candidate.candidate_arc_id)
         if existing is not None:
             warnings.append(
@@ -51,15 +60,17 @@ def prepare_emissions(
                     f"Arc {candidate.candidate_arc_id} appeared more than once; highest score kept.",
                 )
             )
-            probability = max(existing, probability)
-        grouped[candidate.gps_point_idx][candidate.candidate_arc_id] = probability
+            normalized_candidate = max(
+                (existing, normalized_candidate), key=lambda value: value.probability
+            )
+        grouped[candidate.gps_point_idx][candidate.candidate_arc_id] = normalized_candidate
 
     if len(trip_ids) > 1:
         raise ValueError("one decode call must contain candidates for exactly one trip")
 
     emissions: dict[int, list[EmissionState]] = {}
     for gps_idx, scores in grouped.items():
-        total = sum(scores.values())
+        total = sum(candidate.probability for candidate in scores.values())
         if not math.isfinite(total) or total <= 0:
             warnings.append(
                 DecoderWarning(
@@ -69,12 +80,23 @@ def prepare_emissions(
                 )
             )
             total = float(len(scores))
-            scores = {arc_id: 1.0 for arc_id in scores}
+            scores = {
+                arc_id: CandidateScore(
+                    trip_id=candidate.trip_id,
+                    gps_point_idx=candidate.gps_point_idx,
+                    candidate_arc_id=arc_id,
+                    probability=1.0,
+                    candidate_miss=candidate.candidate_miss,
+                    projection_ratio=candidate.projection_ratio,
+                )
+                for arc_id, candidate in scores.items()
+            }
         states = []
         for arc_id in sorted(scores):
-            normalized = max(scores[arc_id] / total, config.probability_floor)
+            candidate = scores[arc_id]
+            normalized = max(candidate.probability / total, config.probability_floor)
             states.append(
-                EmissionState(arc_id, normalized, math.log(normalized))
+                EmissionState(arc_id, normalized, math.log(normalized), candidate.projection_ratio)
             )
         emissions[gps_idx] = states
     return emissions, warnings

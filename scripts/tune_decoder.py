@@ -15,7 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from pathsnap.decoder import DecoderConfig, HMMDecoder  # noqa: E402
-from pathsnap.decoder.evaluation import candidate_miss_rate, evaluate_predictions, result_prediction_map  # noqa: E402
+from pathsnap.decoder.evaluation import (  # noqa: E402
+    evaluate_predictions,
+    final_candidate_miss_rate,
+    result_prediction_map,
+    result_segment_map,
+)
 from pathsnap.decoder.experiments import load_offline_trip  # noqa: E402
 from pathsnap.decoder.io import read_manifest  # noqa: E402
 
@@ -55,9 +60,6 @@ def main() -> None:
             metrics_for_fold = []
             for entry in validation_entries:
                 trip = load_offline_trip(entry, manifest_path.parent, require_labels=True)
-                flags = {}
-                for candidate in trip.candidates:
-                    flags[candidate.gps_point_idx] = flags.get(candidate.gps_point_idx, False) or candidate.candidate_miss
                 result = HMMDecoder(trip.graph, config).decode(trip.trip_id, trip.gps_points, trip.candidates)
                 metrics_for_fold.append(
                     evaluate_predictions(
@@ -65,7 +67,10 @@ def main() -> None:
                         trip.reference_labels or {},
                         trip.graph,
                         trip.gps_points,
-                        candidate_miss_rate(flags.values()),
+                        candidate_miss_rate=final_candidate_miss_rate(
+                            trip.gps_points, trip.candidates, trip.reference_labels or {}
+                        ),
+                        segment_ids=result_segment_map(result),
                     )
                 )
             macro_f1 = statistics.fmean(metric["macro_f1"] for metric in metrics_for_fold)

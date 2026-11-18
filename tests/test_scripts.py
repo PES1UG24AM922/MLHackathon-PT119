@@ -56,8 +56,8 @@ def _write_trip(root: Path, trip_id: str, partition: str) -> dict[str, str]:
 
 
 def test_offline_scripts_execute_end_to_end(tmp_path: Path):
-    entries = [_write_trip(tmp_path, f"train_{index}", "train") for index in range(5)]
-    entries.append(_write_trip(tmp_path, "student_0", "student_test"))
+    entries = [_write_trip(tmp_path, f"{index:08d}", "train") for index in range(5)]
+    entries.append(_write_trip(tmp_path, "00000091", "student_test"))
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps({"trips": entries}), encoding="utf-8")
     grid = tmp_path / "grid.json"
@@ -73,8 +73,14 @@ def test_offline_scripts_execute_end_to_end(tmp_path: Path):
         )
 
     predictions = tmp_path / "predictions.csv"
-    run("decode_trip.py", "--manifest", str(manifest), "--trip-id", "train_0", "--output", str(predictions))
+    # Prediction must preserve the zero-padded trip ID and must not open the
+    # label path merely because a manifest happens to contain one.
+    (tmp_path / "00000000_labels.csv").unlink()
+    run("decode_trip.py", "--manifest", str(manifest), "--trip-id", "00000000", "--output", str(predictions))
     assert predictions.exists()
+    pd.DataFrame({"gps_point_idx": [0, 1], "reference_arc_id": [0, 1]}).to_csv(
+        tmp_path / "00000000_labels.csv", index=False
+    )
     evaluation = tmp_path / "comparison.csv"
     run("evaluate_classifier_vs_hmm.py", "--manifest", str(manifest), "--output", str(evaluation))
     assert len(pd.read_csv(evaluation)) == 2

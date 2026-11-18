@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import math
 from typing import Iterable
 
@@ -31,36 +30,57 @@ def evaluate_predictions(
     gps_points: Iterable[GPSPoint],
     max_network_distance_m: float = 20_000.0,
     candidate_miss_rate: float | None = None,
+    segment_ids: dict[int, int] | None = None,
 ) -> dict[str, float | int]:
-    """Evaluate only aligned point-level states, never compact display routes."""
-    comparable = [
+    """Evaluate every eligible aligned observation, including abstentions.
+
+    An unmatched prediction is counted as incorrect and included in coverage;
+    compact display routes are never used as an evaluation denominator.
+    """
+    point_by_idx = {point.gps_point_idx: point for point in gps_points}
+    eligible = [
         (gps_idx, reference)
         for gps_idx, reference in reference_labels.items()
-        if gps_idx in decoded_arc_ids and decoded_arc_ids[gps_idx] is not None
+        if gps_idx in point_by_idx and point_by_idx[gps_idx].usable
     ]
-    if not comparable:
+    if not eligible:
         return {
             "n_evaluated": 0,
+            "n_predicted": 0,
+            "n_unmatched": 0,
+            "prediction_coverage": float("nan"),
             "top1_accuracy": float("nan"),
             "macro_f1": float("nan"),
             "route_continuity": float("nan"),
+            "continuity_breaks": 0,
             "candidate_miss_rate": candidate_miss_rate if candidate_miss_rate is not None else float("nan"),
         }
-    y_true = [reference for _, reference in comparable]
-    y_pred = [int(decoded_arc_ids[gps_idx]) for gps_idx, _ in comparable]
+    y_true = [reference for _, reference in eligible]
+    unmatched_sentinel = -1
+    y_pred = [
+        int(decoded_arc_ids.get(gps_idx))
+        if decoded_arc_ids.get(gps_idx) is not None
+        else unmatched_sentinel
+        for gps_idx, _ in eligible
+    ]
     accuracy = sum(t == p for t, p in zip(y_true, y_pred)) / len(y_true)
-
-    point_by_idx = {point.gps_point_idx: point for point in gps_points}
-    ordered = sorted(
-        (idx, arc) for idx, arc in decoded_arc_ids.items() if arc is not None and idx in point_by_idx
-    )
+    n_predicted = sum(prediction != unmatched_sentinel for prediction in y_pred)
+    ordered = sorted((idx, int(arc)) for idx, arc in decoded_arc_ids.items() if arc is not None and idx in point_by_idx)
     continuity_checks = 0
     connected = 0
+    continuity_breaks = 0
     for (previous_idx, previous_arc), (current_idx, current_arc) in zip(ordered, ordered[1:]):
         previous_point = point_by_idx[previous_idx]
         current_point = point_by_idx[current_idx]
         dt = current_point.timestamp_s - previous_point.timestamp_s
-        if not math.isfinite(dt) or dt <= 0:
+        is_segment_break = (
+            not math.isfinite(dt)
+            or dt <= 0
+            or (segment_ids is not None and segment_ids.get(previous_idx) != segment_ids.get(current_idx))
+            or current_idx != previous_idx + 1
+        )
+        if is_segment_break:
+            continuity_breaks += 1
             continue
         if previous_arc == current_arc:
             connected += 1
@@ -73,10 +93,14 @@ def evaluate_predictions(
         if path is not None:
             connected += 1
     return {
-        "n_evaluated": len(comparable),
+        "n_evaluated": len(eligible),
+        "n_predicted": n_predicted,
+        "n_unmatched": len(eligible) - n_predicted,
+        "prediction_coverage": n_predicted / len(eligible),
         "top1_accuracy": accuracy,
         "macro_f1": macro_f1(y_true, y_pred),
         "route_continuity": connected / continuity_checks if continuity_checks else float("nan"),
+        "continuity_breaks": continuity_breaks,
         "candidate_miss_rate": candidate_miss_rate if candidate_miss_rate is not None else float("nan"),
     }
 
@@ -86,5 +110,55 @@ def candidate_miss_rate(candidate_miss_flags: Iterable[bool]) -> float:
     return sum(flags) / len(flags) if flags else float("nan")
 
 
+def final_candidate_miss_rate(
+    gps_points: Iterable[GPSPoint], candidate_scores, reference_labels: dict[int, int]
+) -> float:
+    """Candidate miss rate over final candidate groups, including zero rows."""
+    by_point: dict[int, list] = {}
+    for score in candidate_scores:
+        by_point.setdefault(score.gps_point_idx, []).append(score)
+    flags = []
+    for point in gps_points:
+        if not point.usable or point.gps_point_idx not in reference_labels:
+            continue
+        rows = by_point.get(point.gps_point_idx, [])
+        flags.append(not rows or any(row.candidate_miss for row in rows))
+    return candidate_miss_rate(flags)
+
+
 def result_prediction_map(result: DecodeResult) -> dict[int, int | None]:
     return {point.gps_point_idx: point.decoded_arc_id for point in result.decoded_points}
+
+
+def result_segment_map(result: DecodeResult) -> dict[int, int]:
+    return {point.gps_point_idx: point.segment_id for point in result.decoded_points}
+
+
+def prediction_segment_map(
+    gps_points: Iterable[GPSPoint],
+    predictions: dict[int, int | None],
+    gap_reset_seconds: float,
+) -> dict[int, int]:
+    """Apply decoder-equivalent gap/missing rules to a classifier baseline."""
+    segments: dict[int, int] = {}
+    segment_id = 0
+    previous: GPSPoint | None = None
+    previous_has_prediction = False
+    for point in sorted(gps_points, key=lambda value: value.gps_point_idx):
+        has_prediction = point.usable and predictions.get(point.gps_point_idx) is not None
+        if has_prediction:
+            dt = point.timestamp_s - previous.timestamp_s if previous is not None else None
+            if (
+                previous is None
+                or not previous_has_prediction
+                or dt is None
+                or not math.isfinite(dt)
+                or dt <= 0
+                or dt > gap_reset_seconds
+            ):
+                if segments:
+                    segment_id += 1
+            segments[point.gps_point_idx] = segment_id
+        previous = point
+        previous_has_prediction = has_prediction
+    return segments

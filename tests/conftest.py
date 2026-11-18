@@ -16,15 +16,21 @@ TEST_PURPOSES = {
     "test_unknown_candidate_arc_fails_fast": "rejects candidates that do not exist in the road graph",
     "test_non_increasing_timestamp_restarts_sequence": "resets safely on duplicate or backwards timestamps",
     "test_unusable_gps_point_is_preserved_as_unmatched": "preserves preprocessing-marked invalid GPS points without decoding them",
-    "test_all_disconnected_predecessors_warn_but_decode": "returns a route plus a warning when every predecessor is disconnected",
+    "test_all_disconnected_predecessors_start_a_new_segment": "starts a new route segment when every predecessor is unreachable",
     "test_candidate_trip_mismatch_is_rejected": "prevents candidate scores from another trip entering the decode call",
     "test_unordered_or_duplicate_gps_indices_are_rejected": "enforces unique, ordered GPS indices",
     "test_candidate_must_reference_an_existing_gps_point": "rejects candidate rows for nonexistent GPS observations",
     "test_mixed_trip_emissions_are_rejected": "rejects mixed-trip probability groups",
     "test_invalid_configuration_is_rejected": "rejects unsafe HMM configuration values",
+    "test_projected_arc_offsets_prevent_long_arc_junction_error": "uses arc projection offsets at a long-arc junction",
     "test_metrics_use_point_level_predictions": "computes accuracy, Macro F1, and continuity from point-level states",
     "test_macro_f1_handles_missed_class": "keeps Macro F1 correct when a road-arc class is missed",
-    "test_offline_scripts_execute_end_to_end": "runs decode, offline comparison, and five-fold tuning scripts on synthetic artifacts",
+    "test_unmatched_eligible_point_counts_against_accuracy_and_coverage": "counts abstentions as misses and reports prediction coverage",
+    "test_candidate_csv_preserves_zero_padded_trip_id": "preserves leading zeroes in real-format trip IDs",
+    "test_label_free_candidate_and_feature_generation_needs_no_route": "builds inference candidates/features when no reference route exists",
+    "test_offline_scripts_execute_end_to_end": "runs decode, label-isolation, offline comparison, and five-fold tuning scripts on synthetic artifacts",
+    "test_person1_person2_adapter_decodes_label_free_frames": "connects Person 1 feature frames and a calibrated Person 2 model to label-free HMM decoding",
+    "test_adapter_requires_calibration_and_matching_feature_schema": "rejects uncalibrated or schema-incompatible model artifacts",
 }
 
 

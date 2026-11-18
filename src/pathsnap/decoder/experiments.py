@@ -37,7 +37,13 @@ def load_offline_trip(entry: dict[str, Any], root: Path, require_labels: bool = 
     labels_path = entry.get("reference_labels")
     if require_labels and not labels_path:
         raise ValueError(f"trip {entry['trip_id']} needs reference_labels for offline evaluation")
-    labels = read_reference_labels_csv(root / str(labels_path)) if labels_path else None
+    # A manifest may retain a server-side/offline label path. Never open it
+    # during prediction merely because it happens to be listed.
+    labels = (
+        read_reference_labels_csv(root / str(labels_path))
+        if require_labels and labels_path
+        else None
+    )
     return OfflineTrip(
         trip_id=str(entry["trip_id"]),
         partition=str(entry["partition"]),

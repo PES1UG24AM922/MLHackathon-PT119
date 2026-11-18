@@ -66,7 +66,9 @@ def read_nodes_arcs(
 
 
 def read_candidate_scores_csv(path: str | Path) -> list[CandidateScore]:
-    frame = pd.read_csv(path)
+    # Trip IDs are identifiers, not integers: preserve leading zeroes such as
+    # `00000000` used by the supplied development partition.
+    frame = pd.read_csv(path, dtype={"trip_id": str})
     missing = REQUIRED_CANDIDATE_COLUMNS - set(frame.columns)
     if missing:
         raise ValueError(f"candidate score file missing columns: {sorted(missing)}")
@@ -83,6 +85,7 @@ def read_candidate_scores_csv(path: str | Path) -> list[CandidateScore]:
             candidate_arc_id=int(row["candidate_arc_id"]),
             probability=float(row[score_column]),
             candidate_miss=bool(row.get("candidate_miss", False)),
+            projection_ratio=_optional_float(row.get("proj_ratio")),
         )
         for row in frame.to_dict("records")
     ]

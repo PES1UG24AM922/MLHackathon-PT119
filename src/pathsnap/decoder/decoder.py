@@ -54,25 +54,30 @@ class HMMDecoder:
 
         decoded: dict[int, tuple[int | None, float | None, int]] = {}
         segment: list[GPSPoint] = []
-        segment_id = 0
+        next_segment_id = 0
         previous_point: GPSPoint | None = None
         for point in points:
             reset_reason = self._reset_reason(previous_point, point, emissions)
             if reset_reason and segment:
-                self._decode_segment(segment, emissions, decoded, segment_id, warnings)
+                next_segment_id = self._decode_segment(
+                    segment, emissions, decoded, next_segment_id, warnings
+                )
                 segment = []
-                segment_id += 1
+            elif reset_reason and previous_point is not None:
+                # A prior unmatched/unusable point already ended the sequence.
+                # Reserve a fresh ID so display expansion cannot bridge across it.
+                next_segment_id += 1
             if reset_reason:
                 warnings.append(DecoderWarning(reset_reason, point.gps_point_idx, "Decoder segment reset."))
             if not point.usable:
-                decoded[point.gps_point_idx] = (None, None, segment_id)
+                decoded[point.gps_point_idx] = (None, None, next_segment_id)
                 warnings.append(
                     DecoderWarning("UNUSABLE_GPS_POINT", point.gps_point_idx, "Point marked unusable by preprocessing.")
                 )
                 previous_point = point
                 continue
             if not emissions.get(point.gps_point_idx):
-                decoded[point.gps_point_idx] = (None, None, segment_id)
+                decoded[point.gps_point_idx] = (None, None, next_segment_id)
                 warnings.append(
                     DecoderWarning("EMPTY_CANDIDATE_SET", point.gps_point_idx, "No candidate arcs; point left unmatched.")
                 )
@@ -81,20 +86,29 @@ class HMMDecoder:
             segment.append(point)
             previous_point = point
         if segment:
-            self._decode_segment(segment, emissions, decoded, segment_id, warnings)
+            next_segment_id = self._decode_segment(
+                segment, emissions, decoded, next_segment_id, warnings
+            )
 
         decoded_points = [
-            DecodedPoint(point.gps_point_idx, *decoded.get(point.gps_point_idx, (None, None, segment_id)))
+            DecodedPoint(
+                point.gps_point_idx,
+                *decoded.get(point.gps_point_idx, (None, None, next_segment_id)),
+            )
             for point in points
         ]
-        compact = self._compact_route(decoded_points)
-        expanded = self._expand_route(compact, warnings)
+        compact_segments = self._compact_route_segments(decoded_points)
+        expanded_segments = [self._expand_route(segment, warnings) for segment in compact_segments]
+        compact = [arc_id for segment in compact_segments for arc_id in segment]
+        expanded = [arc_id for segment in expanded_segments for arc_id in segment]
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         return DecodeResult(
             trip_id=trip_id,
             decoded_points=decoded_points,
             compact_route_arc_ids=compact,
             expanded_route_arc_ids=expanded,
+            compact_route_segments=compact_segments,
+            expanded_route_segments=expanded_segments,
             warnings=warnings,
             inference_time_ms=elapsed_ms,
             decoder_version=self.config.decoder_version,
@@ -135,11 +149,11 @@ class HMMDecoder:
         points: list[GPSPoint],
         emissions: dict[int, list[EmissionState]],
         decoded: dict[int, tuple[int | None, float | None, int]],
-        segment_id: int,
+        first_segment_id: int,
         warnings: list[DecoderWarning],
-    ) -> None:
+    ) -> int:
         if not points:
-            return
+            return first_segment_id
         scores: list[dict[int, float]] = []
         backpointers: list[dict[int, int | None]] = []
         first_states = emissions[points[0].gps_point_idx]
@@ -149,6 +163,9 @@ class HMMDecoder:
         }
         scores.append(first_scores)
         backpointers.append({state.arc_id: None for state in first_states})
+        state_maps: list[dict[int, EmissionState]] = [
+            {state.arc_id: state for state in first_states}
+        ]
 
         for time_idx in range(1, len(points)):
             prior = points[time_idx - 1]
@@ -160,8 +177,14 @@ class HMMDecoder:
                 best_prior_arc: int | None = None
                 disconnected_count = 0
                 for prior_arc, prior_score in scores[-1].items():
+                    prior_state = state_maps[-1][prior_arc]
                     transition = self.transitions.score(
-                        prior, current, prior_arc, current_state.arc_id
+                        prior,
+                        current,
+                        prior_arc,
+                        current_state.arc_id,
+                        prior_state.projection_ratio,
+                        current_state.projection_ratio,
                     )
                     if transition.disconnected:
                         disconnected_count += 1
@@ -174,39 +197,43 @@ class HMMDecoder:
                         best_score = candidate_score
                         best_prior_arc = prior_arc
                 if best_prior_arc is None:
-                    # Defensive fallback; should only happen with malformed state input.
+                    # No directed path enters this state. Start a fresh route
+                    # segment rather than stitching it through an unreachable arc.
                     best_score = self.config.emission_weight * current_state.log_emission
                     warnings.append(
-                        DecoderWarning("VITERBI_REINITIALIZED", current.gps_point_idx, "No predecessor state available.")
-                    )
-                elif disconnected_count == len(scores[-1]):
-                    warnings.append(
                         DecoderWarning(
-                            "ALL_PREDECESSORS_DISCONNECTED",
+                            "ALL_PREDECESSORS_UNREACHABLE",
                             current.gps_point_idx,
-                            "Used the least-penalized disconnected transition.",
+                            "Started a new Viterbi segment at this state.",
                         )
                     )
                 current_scores[current_state.arc_id] = best_score
                 current_backpointers[current_state.arc_id] = best_prior_arc
             scores.append(current_scores)
             backpointers.append(current_backpointers)
+            state_maps.append({state.arc_id: state for state in emissions[current.gps_point_idx]})
 
         last_arc = min(scores[-1], key=lambda arc_id: (-scores[-1][arc_id], arc_id))
-        decoded[points[-1].gps_point_idx] = (last_arc, scores[-1][last_arc], segment_id)
+        selected_arcs: list[int] = [last_arc]
+        breaks: set[int] = set()
         for time_idx in range(len(points) - 1, 0, -1):
             predecessor = backpointers[time_idx][last_arc]
             if predecessor is None:
-                warnings.append(
-                    DecoderWarning("VITERBI_BACKPOINTER_MISSING", points[time_idx].gps_point_idx, "Sequence reinitialized.")
-                )
+                breaks.add(time_idx)
                 predecessor = min(scores[time_idx - 1], key=lambda arc_id: (-scores[time_idx - 1][arc_id], arc_id))
             last_arc = predecessor
-            decoded[points[time_idx - 1].gps_point_idx] = (
-                last_arc,
-                scores[time_idx - 1][last_arc],
+            selected_arcs.append(last_arc)
+        selected_arcs.reverse()
+        segment_id = first_segment_id
+        for time_idx, arc_id in enumerate(selected_arcs):
+            if time_idx in breaks:
+                segment_id += 1
+            decoded[points[time_idx].gps_point_idx] = (
+                arc_id,
+                scores[time_idx][arc_id],
                 segment_id,
             )
+        return segment_id + 1
 
     def _better(
         self,
@@ -223,12 +250,20 @@ class HMMDecoder:
             and candidate_arc < best_arc
         )
 
-    def _compact_route(self, decoded_points: list[DecodedPoint]) -> list[int]:
-        route: list[int] = []
+    def _compact_route_segments(self, decoded_points: list[DecodedPoint]) -> list[list[int]]:
+        routes: list[list[int]] = []
+        by_segment: dict[int, list[DecodedPoint]] = {}
         for point in decoded_points:
-            if point.decoded_arc_id is not None and (not route or route[-1] != point.decoded_arc_id):
-                route.append(point.decoded_arc_id)
-        return route
+            if point.decoded_arc_id is not None:
+                by_segment.setdefault(point.segment_id, []).append(point)
+        for segment_id in sorted(by_segment):
+            route: list[int] = []
+            for point in by_segment[segment_id]:
+                if not route or route[-1] != point.decoded_arc_id:
+                    route.append(int(point.decoded_arc_id))
+            if route:
+                routes.append(route)
+        return routes
 
     def _expand_route(self, compact: list[int], warnings: list[DecoderWarning]) -> list[int]:
         if not compact:

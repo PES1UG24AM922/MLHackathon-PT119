@@ -194,10 +194,21 @@ class RoadGraph:
         from_arc_id: int,
         to_arc_id: int,
         max_distance_m: float,
+        from_projection_ratio: float | None = None,
+        to_projection_ratio: float | None = None,
     ) -> float | None:
-        """Conservative centre-to-centre approximation between two arc states."""
+        """Directed distance between projected positions on two arc states.
+
+        Ratios are offsets from each directed arc's `from` endpoint. Missing
+        ratios intentionally fall back to a centre-to-centre approximation for
+        backwards compatibility with older candidate artifacts.
+        """
+        from_ratio = 0.5 if from_projection_ratio is None else float(np.clip(from_projection_ratio, 0.0, 1.0))
+        to_ratio = 0.5 if to_projection_ratio is None else float(np.clip(to_projection_ratio, 0.0, 1.0))
         if from_arc_id == to_arc_id:
-            return 0.0
+            # GPS noise can move a projected point slightly backwards on the
+            # same directed arc. Treat this as local movement, not a 1 km loop.
+            return abs(to_ratio - from_ratio) * self.arc(from_arc_id).length_m
         from_arc = self.arc(from_arc_id)
         to_arc = self.arc(to_arc_id)
         middle = self.shortest_node_path(
@@ -205,7 +216,7 @@ class RoadGraph:
         )
         if middle is None:
             return None
-        return from_arc.length_m / 2.0 + middle[0] + to_arc.length_m / 2.0
+        return (1.0 - from_ratio) * from_arc.length_m + middle[0] + to_ratio * to_arc.length_m
 
     def clear_cache(self) -> None:
         self._node_path_cache.clear()

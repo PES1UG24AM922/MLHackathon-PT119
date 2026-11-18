@@ -44,8 +44,10 @@ def list_trip_ids(split_dir: Path) -> list[str]:
     return sorted(p.name for p in split_dir.iterdir() if p.is_dir())
 
 
-def load_trip(split: str, trip_id: str, split_dir: Path) -> TripData:
-    """Load `.track`, `.nodes`, `.arcs`, and `.route` for a single trip."""
+def load_trip(
+    split: str, trip_id: str, split_dir: Path, *, load_reference_route: bool = True
+) -> TripData:
+    """Load raw trip data; disable route loading in prediction/API code."""
     trip_dir = split_dir / trip_id
 
     track_path = trip_dir / f"{trip_id}.track"
@@ -76,10 +78,10 @@ def load_trip(split: str, trip_id: str, split_dir: Path) -> TripData:
     )
 
     route: Optional[np.ndarray] = None
-    if route_path.exists() and route_path.stat().st_size > 0:
+    if load_reference_route and route_path.exists() and route_path.stat().st_size > 0:
         route_df = pd.read_csv(route_path, header=None, names=["arc_id"], dtype=int)
         route = route_df["arc_id"].to_numpy(dtype=int)
-    elif route_path.exists():
+    elif load_reference_route and route_path.exists():
         route = np.array([], dtype=int)
 
     return TripData(

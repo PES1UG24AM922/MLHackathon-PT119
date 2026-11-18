@@ -28,6 +28,7 @@ def test_large_gap_starts_new_segment():
     )
     assert result.decoded_arc_ids == [0, 0]
     assert result.decoded_points[0].segment_id != result.decoded_points[1].segment_id
+    assert result.expanded_route_segments == [[0], [0]]
     assert any(warning.code == "LARGE_GPS_GAP" for warning in result.warnings)
 
 
@@ -60,7 +61,7 @@ def test_unusable_gps_point_is_preserved_as_unmatched():
     assert any(warning.code == "UNUSABLE_GPS_POINT" for warning in result.warnings)
 
 
-def test_all_disconnected_predecessors_warn_but_decode():
+def test_all_disconnected_predecessors_start_a_new_segment():
     graph = RoadGraph(
         np.array([[0, 0], [10, 0], [0, 20], [10, 20]], dtype=float),
         np.array([[0, 1], [2, 3]], dtype=int),
@@ -71,7 +72,8 @@ def test_all_disconnected_predecessors_warn_but_decode():
         [CandidateScore("trip", 0, 0, 1.0), CandidateScore("trip", 1, 1, 1.0)],
     )
     assert result.decoded_arc_ids == [0, 1]
-    assert any(warning.code == "ALL_PREDECESSORS_DISCONNECTED" for warning in result.warnings)
+    assert result.decoded_points[0].segment_id != result.decoded_points[1].segment_id
+    assert any(warning.code == "ALL_PREDECESSORS_UNREACHABLE" for warning in result.warnings)
 
 
 def test_candidate_trip_mismatch_is_rejected():
