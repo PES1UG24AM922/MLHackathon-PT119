@@ -9,6 +9,13 @@ __pycache__/
 
 # Raw dataset
 Student folder/
+Student folder*.zip
+evaluator_test/
+evaluator_test*.zip
+*.track
+*.nodes
+*.arcs
+*.route
 
 # Large cached feature matrix (>100 MB GitHub limit; regenerate via `python src/features/build_dataset.py`)
 artifacts/feature_datasets.joblib

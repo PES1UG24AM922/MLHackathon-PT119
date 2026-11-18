@@ -175,7 +175,6 @@ class HMMDecoder:
             for current_state in emissions[current.gps_point_idx]:
                 best_score = -math.inf
                 best_prior_arc: int | None = None
-                disconnected_count = 0
                 for prior_arc, prior_score in scores[-1].items():
                     prior_state = state_maps[-1][prior_arc]
                     transition = self.transitions.score(
@@ -187,7 +186,7 @@ class HMMDecoder:
                         current_state.projection_ratio,
                     )
                     if transition.disconnected:
-                        disconnected_count += 1
+                        continue
                     candidate_score = (
                         prior_score
                         + transition.log_probability
@@ -196,19 +195,25 @@ class HMMDecoder:
                     if self._better(candidate_score, prior_arc, best_score, best_prior_arc):
                         best_score = candidate_score
                         best_prior_arc = prior_arc
-                if best_prior_arc is None:
-                    # No directed path enters this state. Start a fresh route
-                    # segment rather than stitching it through an unreachable arc.
-                    best_score = self.config.emission_weight * current_state.log_emission
-                    warnings.append(
-                        DecoderWarning(
-                            "ALL_PREDECESSORS_UNREACHABLE",
-                            current.gps_point_idx,
-                            "Started a new Viterbi segment at this state.",
-                        )
+                if best_prior_arc is not None:
+                    current_scores[current_state.arc_id] = best_score
+                    current_backpointers[current_state.arc_id] = best_prior_arc
+            if not current_scores:
+                # Restart only when the observation has no viable continuation.
+                # Comparing fresh log scores with accumulated ones would favor
+                # disconnection even when a connected trajectory is feasible.
+                current_scores = {
+                    state.arc_id: self.config.initial_emission_weight * state.log_emission
+                    for state in emissions[current.gps_point_idx]
+                }
+                current_backpointers = dict.fromkeys(current_scores)
+                warnings.append(
+                    DecoderWarning(
+                        "ALL_PREDECESSORS_UNREACHABLE",
+                        current.gps_point_idx,
+                        "Started a new Viterbi segment with no viable continuation.",
                     )
-                current_scores[current_state.arc_id] = best_score
-                current_backpointers[current_state.arc_id] = best_prior_arc
+                )
             scores.append(current_scores)
             backpointers.append(current_backpointers)
             state_maps.append({state.arc_id: state for state in emissions[current.gps_point_idx]})

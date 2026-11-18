@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from .contracts import Prediction, PredictRequest
 from .data import TripStore
 from .evaluate import evaluate_prediction
+from .maps import offline_folium_map
 from .pipeline import TeamPipeline
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,7 +44,8 @@ def create_app(cfg=None):
     if len(set(trip_ids)) != 10 or len(trip_ids) != 10 or any(not re.fullmatch(r"[0-9]{8}", t) for t in trip_ids):
         raise ValueError("Provide ten distinct eight-digit trip IDs")
     dataset = Path(os.environ.get("PATHSNAP_DATASET", ROOT / cfg["dataset"]))
-    store = TripStore(dataset, cfg["dataset_prefix"], partition)
+    store = TripStore(dataset, cfg["dataset_prefix"], partition,
+                      flat_trip_root=cfg.get("flat_trip_root", False))
     pipeline = None
     reason = "Pipeline is starting"
     slots = BoundedSemaphore(1)
@@ -71,7 +73,8 @@ def create_app(cfg=None):
 
     app = FastAPI(title="PathSnap", version="1.0", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=cfg["allowed_origins"],
-                       allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+                       allow_methods=["GET", "POST"], allow_headers=["Content-Type"],
+                       expose_headers=["X-Request-ID"])
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_request, _exc):
@@ -129,7 +132,7 @@ def create_app(cfg=None):
             point_arcs, segments, arc_segments, warnings = pipeline.predict_trip(trip)
             metrics = {}
             try:
-                metrics = evaluate_prediction(store, body.trip_id, len(trip.arcs), arc_segments)
+                metrics = evaluate_prediction(store, trip, point_arcs, arc_segments)
             except (OSError, KeyError, ValueError, BadZipFile):
                 warnings.append("REFERENCE_METRICS_UNAVAILABLE")
             request.state.warnings = warnings
@@ -163,18 +166,11 @@ def create_app(cfg=None):
             raise HTTPException(404, "Map result expired. Reconstruct the trip again.")
         request.state.trip_id = result.trip_id
         gps = [[p.lat, p.lon] for p in result.gps]
-        view = folium.Map(location=gps[0], tiles=None)
-        view.default_js = []
-        view.default_css = []
-        assets = ROOT / "ui" / "vendor"
-        stylesheet = (assets / "leaflet.css").read_text(encoding="utf-8")
-        script = (assets / "leaflet.js").read_text(encoding="utf-8").split("//# sourceMappingURL=")[0]
-        view.get_root().header.add_child(folium.Element(f"<style>{stylesheet}</style><script>{script}</script>"))
+        view = offline_folium_map(gps)
         folium.PolyLine(gps, color="#667990", weight=2, tooltip="Raw GPS").add_to(view)
         for segment in result.route_segments:
             folium.PolyLine([[p.lat, p.lon] for p in segment], color="#008878", weight=4,
                             tooltip="Predicted route").add_to(view)
-        view.fit_bounds(gps)
         return HTMLResponse(view.get_root().render(), headers={
             "Content-Disposition": f'attachment; filename="pathsnap-{result.trip_id}.html"'
         })

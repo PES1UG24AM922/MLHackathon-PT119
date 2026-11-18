@@ -28,7 +28,8 @@ def run(base_url, evidence):
                 assert len(result["predicted_arc_ids"]) == len(result["gps"])
                 assert result["route_segments"]
                 assert result["mode"] == "development"
-                expected = {"ordered_route_recall", "ordered_route_precision", "ordered_route_f1"}
+                expected = {"ordered_route_recall", "ordered_route_precision", "ordered_route_f1",
+                            "point_top1_accuracy"}
                 assert result["metrics"].keys() == expected
                 assert all(0 <= value <= 1 for value in result["metrics"].values())
                 assert all("reference" not in key for key in result)

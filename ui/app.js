@@ -103,7 +103,8 @@ byId("run").onclick = async () => {
       const label = {
         ordered_route_recall: "Reference route recovered",
         ordered_route_precision: "Predicted route overlap",
-        ordered_route_f1: "Ordered route F1"
+        ordered_route_f1: "Ordered route F1",
+        point_top1_accuracy: "Point Top-1 accuracy"
       }[key];
       metric.textContent = label + " · " + (100 * value).toFixed(1) + "%";
       byId("metrics").appendChild(metric);

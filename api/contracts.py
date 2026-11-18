@@ -27,4 +27,6 @@ class Prediction(StrictModel):
     route_segments: list[list[Coordinate]]
     predicted_arc_ids: list[int | None]
     warnings: list[str]
-    metrics: dict[Literal["ordered_route_recall", "ordered_route_precision", "ordered_route_f1"], float] = {}
+    metrics: dict[Literal[
+        "ordered_route_recall", "ordered_route_precision", "ordered_route_f1", "point_top1_accuracy"
+    ], float] = {}

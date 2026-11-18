@@ -71,32 +71,55 @@ def assign_ground_truth_arcs(
     u: np.ndarray,
     v: np.ndarray,
     route: np.ndarray,
+    timestamps: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Assign each GPS point to its nearest ground-truth arc in `route`."""
-    ax = node_x[u[route]]
-    ay = node_y[u[route]]
-    bx = node_x[v[route]]
-    by = node_y[v[route]]
+    """Find a globally monotone alignment over occurrence indices in the route.
 
-    abx = bx - ax
-    aby = by - ay
-    ab_len2 = abx * abx + aby * aby
-    safe_len2 = np.where(ab_len2 > 1e-12, ab_len2, 1.0)
+    Distance uses a robust log cost. Reliable adjacent headings help distinguish
+    opposite directions. A weak penalty for route progress discourages skipping
+    a long loop at an intersection when successive observations are close.
+    """
+    n_points, n_arcs = len(trk_x), len(route)
+    if n_points == 0 or n_arcs == 0 or np.any((route < 0) | (route >= len(u))):
+        raise ValueError("Alignment requires observations and valid reference arcs")
 
-    n_pts = len(trk_x)
-    gt_arcs = np.empty(n_pts, dtype=int)
-    chunk_size = 256
-    for start in range(0, n_pts, chunk_size):
-        px = trk_x[start : start + chunk_size, None]
-        py = trk_y[start : start + chunk_size, None]
-        t = ((px - ax[None, :]) * abx[None, :] + (py - ay[None, :]) * aby[None, :]) / safe_len2[None, :]
-        t = np.clip(t, 0.0, 1.0)
-        dx = px - (ax[None, :] + t * abx[None, :])
-        dy = py - (ay[None, :] + t * aby[None, :])
-        d2 = dx * dx + dy * dy
-        best_route_idx = np.argmin(d2, axis=1)
-        gt_arcs[start : start + chunk_size] = route[best_route_idx]
-    return gt_arcs
+    ax, ay = node_x[u[route]], node_y[u[route]]
+    bx, by = node_x[v[route]], node_y[v[route]]
+    lengths = np.hypot(bx - ax, by - ay)
+    unit_x = (bx - ax) / np.maximum(lengths, 1e-9)
+    unit_y = (by - ay) / np.maximum(lengths, 1e-9)
+    chainage = np.cumsum(lengths) - lengths / 2
+    indices = np.arange(n_arcs, dtype=np.int32)
+    back = np.empty((n_points, n_arcs), dtype=np.int32)
+    step_x, step_y = np.diff(trk_x), np.diff(trk_y)
+    step_length = np.hypot(step_x, step_y)
+    good = step_length >= 2.5
+    if timestamps is not None:
+        dt = np.diff(timestamps)
+        good &= (dt > 0) & (dt <= 15)
+    hx = np.pad(np.where(good, step_x, 0), (1, 0)) + np.pad(np.where(good, step_x, 0), (0, 1))
+    hy = np.pad(np.where(good, step_y, 0), (1, 0)) + np.pad(np.where(good, step_y, 0), (0, 1))
+
+    for i, (x, y) in enumerate(zip(trk_x, trk_y)):
+        distances, _ = point_to_single_segments(x, y, ax, ay, bx, by)
+        cost = np.log1p((distances / 6.0) ** 2)
+        norm = np.hypot(hx[i], hy[i])
+        if norm >= 2.5:
+            cost += 0.55 * (1 - (hx[i] * unit_x + hy[i] * unit_y) / norm)
+        if i == 0:
+            accum = cost
+            continue
+        weight = 0.012 / (8.0 + step_length[i - 1]) if good[i - 1] else 0.0
+        predecessor_cost = accum - weight * chainage
+        minimum = np.minimum.accumulate(predecessor_cost)
+        back[i] = np.maximum.accumulate(np.where(predecessor_cost == minimum, indices, 0))
+        accum = minimum + weight * chainage + cost
+
+    positions = np.empty(n_points, dtype=np.int32)
+    positions[-1] = np.argmin(accum)
+    for i in range(n_points - 1, 0, -1):
+        positions[i - 1] = back[i, positions[i]]
+    return route[positions]
 
 
 def _build_arc_sample_tree(
@@ -147,18 +170,8 @@ def generate_candidates_for_trip(
     Set ``require_ground_truth=False`` in the final prediction/API path.  That
     route never reads `.route`, so evaluator labels cannot enter inference.
     """
-    center_lon = float(trip.track["lon"].median())
-    center_lat = float(trip.track["lat"].median())
-    epsg = get_utm_epsg(center_lon, center_lat)
-    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
-
-    trk_x, trk_y = project_to_utm(
-        trip.track["lon"].to_numpy(), trip.track["lat"].to_numpy(), transformer
-    )
+    trk_x, trk_y, node_x, node_y = projected_coordinates(trip)
     ts = trip.track["timestamp"].to_numpy(dtype=float)
-    node_x, node_y = project_to_utm(
-        trip.nodes["lon"].to_numpy(), trip.nodes["lat"].to_numpy(), transformer
-    )
 
     u = trip.arcs["from_node"].to_numpy(dtype=int)
     v = trip.arcs["to_node"].to_numpy(dtype=int)
@@ -167,7 +180,7 @@ def generate_candidates_for_trip(
     if require_ground_truth and (trip.route is None or len(trip.route) == 0):
         raise ValueError(f"Trip {trip.split}/{trip.trip_id} has no ground-truth route.")
     gt_arc_ids = (
-        assign_ground_truth_arcs(trk_x, trk_y, node_x, node_y, u, v, trip.route)
+        assign_ground_truth_arcs(trk_x, trk_y, node_x, node_y, u, v, trip.route, ts)
         if require_ground_truth and trip.route is not None
         else None
     )
@@ -188,7 +201,6 @@ def generate_candidates_for_trip(
     proj_ratios: list[np.ndarray] = []
     labels: list[np.ndarray] = []
 
-    n_missed_gt = 0
     n_zero_cands = 0
 
     for i, nbrs in enumerate(neighbors_list):
@@ -209,8 +221,6 @@ def generate_candidates_for_trip(
             ratios = np.empty(0, dtype=float)
 
         gt_arc = int(gt_arc_ids[i]) if gt_arc_ids is not None else None
-        if gt_arc is not None and gt_arc not in unique_arcs:
-            n_missed_gt += 1
 
         if len(unique_arcs) == 0:
             n_zero_cands += 1
@@ -233,11 +243,6 @@ def generate_candidates_for_trip(
             unique_arcs = unique_arcs[order]
             dists = dists[order]
             ratios = ratios[order]
-            if gt_arc is not None and gt_arc not in unique_arcs:
-                # Note: if gt_arc was dropped by max_candidates cap, count as missed if not already
-                pass
-
-        # Re-check miss after max_candidates truncation so miss_rate reflects final candidate set
         pt_indices.append(np.full(len(unique_arcs), i, dtype=int))
         cand_arcs.append(unique_arcs)
         perp_dists.append(dists)
@@ -280,3 +285,17 @@ def generate_candidates_for_trip(
         miss_rate=float(n_missed_final / n_points) if n_missed_final is not None else None,
         zero_cand_rate=float(n_zero_cands / n_points),
     )
+
+
+def projected_coordinates(trip):
+    center_lon = float(trip.track["lon"].median())
+    center_lat = float(trip.track["lat"].median())
+    epsg = get_utm_epsg(center_lon, center_lat)
+    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+    trk_x, trk_y = project_to_utm(
+        trip.track["lon"].to_numpy(), trip.track["lat"].to_numpy(), transformer
+    )
+    node_x, node_y = project_to_utm(
+        trip.nodes["lon"].to_numpy(), trip.nodes["lat"].to_numpy(), transformer
+    )
+    return trk_x, trk_y, node_x, node_y

@@ -1,5 +1,11 @@
 # PathSnap
 
+The submission build uses ordered-route training labels, a calibrated scorer,
+and the directed HMM decoder. Start with the [final setup and reproduction
+guide](docs/final-release.md). Results for this build are in
+[`results/final/`](results/final/). The rest of this README documents the
+team's standalone decoder workflow.
+
 PathSnap uses a trained candidate scorer and a directed HMM/Viterbi decoder
 to reconstruct a route from GPS observations. See the [two-laptop runbook](docs/demo.md)
 for FastAPI, the trip selection UI, and the student-test acceptance checks.

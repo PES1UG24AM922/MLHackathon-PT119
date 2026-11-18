@@ -1,0 +1,4 @@
+trial,transition_distance_scale_m,emission_weight,gap_reset_seconds,mean_cv_top1
+0,35.0,1.0,30.0,0.9288581868799177
+1,18.0,1.15,30.0,0.9326492294011203
+2,55.0,0.85,45.0,0.9281436044165904

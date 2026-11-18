@@ -13,14 +13,14 @@ from pathsnap.decoder.config import DecoderConfig
 from pathsnap.decoder.decoder import HMMDecoder
 from pathsnap.decoder.graph import RoadGraph
 from pathsnap.decoder.schemas import CandidateScore, GPSPoint
-from src.features.candidate_gen import generate_candidates_for_trip
-from src.features.feature_engineering import FEATURE_COLS, extract_features_for_trip
+from src.features.build_dataset import build_inference_features
+from src.features.feature_engineering import FEATURE_COLS
 
 
 class Manifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["1.0"]
-    feature_version: Literal["pathsnap-features-v1"]
+    feature_version: Literal["pathsnap-features-v1", "pathsnap-features-v2-ordered-labels"]
     dataset_version: str
     model_version: str
     decoder_version: str
@@ -57,6 +57,12 @@ class TeamPipeline:
         decoder_file = verified_path(root, manifest.decoder_config, manifest.decoder_sha256, text=True)
         # This is the team's committed artifact, pinned by checksum in the manifest.
         bundle = joblib.load(model_file)
+        if manifest.feature_version != "pathsnap-features-v1":
+            if (bundle.get("feature_schema_version") != manifest.feature_version
+                    or bundle.get("model_version") != manifest.model_version):
+                raise ValueError("Model bundle does not match the feature and model manifest")
+            if manifest.score_kind == "calibrated" and not bundle.get("calibration_method"):
+                raise ValueError("Calibrated model has no calibration metadata")
         self.model = bundle["model"]
         self.scaler = bundle["scaler"] if bundle["needs_scaling"] else None
         if list(bundle["feature_cols"]) != FEATURE_COLS or 1 not in self.model.classes_:
@@ -73,10 +79,9 @@ class TeamPipeline:
     def predict_trip(self, trip):
         if trip.route is not None:
             raise ValueError("Prediction requires an unlabeled trip")
-        candidates = generate_candidates_for_trip(
+        frame, candidates = build_inference_features(
             trip, radius_m=self.manifest.radius_m, max_candidates=self.manifest.max_candidates
         )
-        frame = extract_features_for_trip(candidates)
         features = frame[FEATURE_COLS].to_numpy(dtype=np.float32)
         if self.scaler is not None:
             features = self.scaler.transform(features)
@@ -93,8 +98,10 @@ class TeamPipeline:
             ))
         ]
         scores = [
-            CandidateScore(trip.trip_id, int(idx), int(arc), float(prob))
-            for idx, arc, prob in zip(candidates.pt_idx, candidates.cand_arc_id, probabilities)
+            CandidateScore(trip.trip_id, int(idx), int(arc), float(prob), projection_ratio=float(ratio))
+            for idx, arc, prob, ratio in zip(
+                candidates.pt_idx, candidates.cand_arc_id, probabilities, candidates.proj_ratio
+            )
         ]
         decoded = HMMDecoder(graph, self.decoder_config).decode(trip.trip_id, gps, scores)
         segments, arc_segments, disconnected = display_route(

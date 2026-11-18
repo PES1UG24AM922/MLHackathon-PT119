@@ -9,15 +9,17 @@ from src.eda.data_loader import TripData
 
 
 class TripStore:
-    def __init__(self, path: Path, prefix: str, partition: str):
+    def __init__(self, path: Path, prefix: str, partition: str, flat_trip_root=False):
         self.path = path
         self.prefix = prefix.strip("/")
         self.partition = partition
+        directory = "" if flat_trip_root else partition
+        self.root = "/".join(part for part in (self.prefix, directory) if part)
 
     def _read(self, trip_id, suffixes):
-        names = [f"{self.partition}/{trip_id}/{trip_id}.{suffix}" for suffix in suffixes]
-        if self.prefix:
-            names = [f"{self.prefix}/{name}" for name in names]
+        names = [f"{trip_id}/{trip_id}.{suffix}" for suffix in suffixes]
+        if self.root:
+            names = [f"{self.root}/{name}" for name in names]
         if self.path.is_dir():
             return [(self.path / name).read_bytes() for name in names]
         with ZipFile(self.path) as archive:

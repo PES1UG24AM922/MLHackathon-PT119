@@ -6,5 +6,5 @@
   "dataset_prefix": "Student folder",
   "trip_ids": ["00000000", "00000007", "00000009", "00000040", "00000052", "00000056", "00000065", "00000076", "00000077", "00000091"],
   "allowed_origins": ["http://localhost:8080", "http://127.0.0.1:8080"],
-  "artifact_manifest": "configs/inference.student.json"
+  "artifact_manifest": "configs/inference.final.json"
 }

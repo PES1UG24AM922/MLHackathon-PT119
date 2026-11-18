@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "feature_version": "pathsnap-features-v2-ordered-labels",
+  "dataset_version": "PathSnap-student-materials",
+  "model_version": "histgradientboosting-tpe-sigmoid-v2",
+  "decoder_version": "2.0.0",
+  "random_seed": 42,
+  "sklearn_version": "1.9.1",
+  "model_file": "artifacts/final_emission.joblib",
+  "model_sha256": "7228f44ff2d6070bd6aa11a4f939aed0b5af5dab97b7e4eada8e238c4a1ef06d",
+  "decoder_config": "configs/hmm.final.json",
+  "decoder_sha256": "1d1f8a51da0218fbb4d04be1e4f8382e1fc15c076c9df071de5c72f3355e6b6c",
+  "score_kind": "calibrated",
+  "radius_m": 50.0,
+  "max_candidates": 20
+}

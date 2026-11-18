@@ -30,3 +30,17 @@ def test_tie_break_is_deterministic():
     point = [GPSPoint(0, 0, 1, 0)]
     candidates = [CandidateScore("trip", 0, 2, 0.5), CandidateScore("trip", 0, 0, 0.5)]
     assert decoder.decode("trip", point, candidates).decoded_arc_ids == [0]
+
+
+def test_unreachable_candidate_does_not_reset_a_reachable_step():
+    decoder = HMMDecoder(_graph(), DecoderConfig(transition_distance_scale_m=5.0))
+    points = [GPSPoint(0, 0, 1, 0), GPSPoint(1, 1, 11, 0)]
+    rows = [
+        CandidateScore("trip", 0, 0, 1.0),
+        CandidateScore("trip", 1, 1, 0.10),
+        CandidateScore("trip", 1, 2, 0.90),
+    ]
+    result = decoder.decode("trip", points, rows)
+    assert result.decoded_arc_ids == [0, 1]
+    assert len(result.compact_route_segments) == 1
+    assert all(warning.code != "ALL_PREDECESSORS_UNREACHABLE" for warning in result.warnings)

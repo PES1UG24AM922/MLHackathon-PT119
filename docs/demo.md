@@ -1,5 +1,8 @@
 # PathSnap two-laptop demo
 
+This page describes the original Person 4 prototype. Use the [final release
+guide](final-release.md) for the calibrated model and the current demo configuration.
+
 The development configuration runs the committed Random Forest and Person 3 decoder against the ten student-test trips. Candidate scores from this model are uncalibrated. Evaluator mode requires the final calibrated artifact.
 
 ## Laptop 1

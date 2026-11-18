@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 visualization = ["folium>=0.15", "matplotlib>=3.7"]
 test = ["pytest>=7.4"]
+report = ["reportlab>=4,<6", "pillow>=10"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
