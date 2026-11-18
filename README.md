@@ -141,3 +141,13 @@ result = decoder.decode(trip_id, gps_points, candidate_scores)
 Return predicted route geometry, per-point predicted arc IDs when appropriate,
 warnings, decoder version, and elapsed time. Evaluate against reference labels
 only in a separate server-side evaluator; never return those labels to the UI.
+
+## Current integration gate
+
+`pathsnap.decoder.integration.decode_person1_person2_output()` is the
+label-free bridge for Person 4. It validates Person 1's GPS/nodes/arcs/candidate
+frames, then loads Person 2's model only when its artifact includes a frozen
+feature-schema version, model version, and calibration method. The current
+baseline model artifact must be regenerated after Person 1's alignment work
+with those fields and calibrated out-of-fold scores before it can enter final
+HMM tuning or the API.

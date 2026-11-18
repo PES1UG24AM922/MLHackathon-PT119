@@ -25,6 +25,8 @@ TEST_PURPOSES = {
     "test_metrics_use_point_level_predictions": "computes accuracy, Macro F1, and continuity from point-level states",
     "test_macro_f1_handles_missed_class": "keeps Macro F1 correct when a road-arc class is missed",
     "test_offline_scripts_execute_end_to_end": "runs decode, offline comparison, and five-fold tuning scripts on synthetic artifacts",
+    "test_person1_person2_adapter_decodes_label_free_frames": "connects Person 1 feature frames and a calibrated Person 2 model to label-free HMM decoding",
+    "test_adapter_requires_calibration_and_matching_feature_schema": "rejects uncalibrated or schema-incompatible model artifacts",
 }
 
 
