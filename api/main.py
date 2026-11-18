@@ -10,7 +10,6 @@ from threading import BoundedSemaphore, Lock
 from uuid import uuid4
 from zipfile import BadZipFile
 
-import folium
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -20,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from .contracts import Prediction, PredictRequest
 from .data import TripStore
 from .evaluate import evaluate_prediction
-from .maps import offline_folium_map
+from .maps import exported_route_map
 from .pipeline import TeamPipeline
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -166,11 +165,8 @@ def create_app(cfg=None):
             raise HTTPException(404, "Map result expired. Reconstruct the trip again.")
         request.state.trip_id = result.trip_id
         gps = [[p.lat, p.lon] for p in result.gps]
-        view = offline_folium_map(gps)
-        folium.PolyLine(gps, color="#667990", weight=2, tooltip="Raw GPS").add_to(view)
-        for segment in result.route_segments:
-            folium.PolyLine([[p.lat, p.lon] for p in segment], color="#008878", weight=4,
-                            tooltip="Predicted route").add_to(view)
+        segments = [[[p.lat, p.lon] for p in segment] for segment in result.route_segments]
+        view = exported_route_map(gps, segments)
         return HTMLResponse(view.get_root().render(), headers={
             "Content-Disposition": f'attachment; filename="pathsnap-{result.trip_id}.html"'
         })

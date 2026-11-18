@@ -3,7 +3,28 @@
 <link rel="stylesheet" href="vendor/leaflet.css">
 <style>
 :root{font-family:system-ui,sans-serif;color:#e8eef7;background:#0c1422}body{margin:0}header{padding:24px 5%;border-bottom:1px solid #29364b;display:flex;justify-content:space-between;align-items:center}h1{font-size:26px;margin:0}h1 span{color:#39dbc1}small,.muted{color:#a3b3c9}main{padding:32px 5%;display:grid;grid-template-columns:300px 1fr;gap:24px}.panel{background:#141f30;border:1px solid #29364b;border-radius:16px;padding:24px}h2{font-size:18px;margin-top:0}label{display:block;font-size:13px;margin:20px 0 8px}input,select,button{box-sizing:border-box;width:100%;padding:12px;border-radius:8px;border:1px solid #3b4e68;background:#0c1422;color:inherit;font:inherit}button{cursor:pointer;margin-top:12px;background:#26c6ad;color:#071a20;font-weight:700;border:0}button.secondary{background:#24354d;color:#e8eef7}button:disabled{opacity:.45;cursor:wait}#map{height:510px;border-radius:12px;background:#1a2a3d}.status{font-size:13px;color:#f5c77e}#message{white-space:pre-wrap;line-height:1.5;font-size:14px}.legend{display:flex;gap:24px;margin-top:14px;font-size:13px}.teal{color:#39dbc1}#summary{margin-bottom:16px}a{color:#39dbc1}@media(max-width:800px){main{grid-template-columns:1fr}#map{height:420px}}
+main { grid-template-columns: 300px minmax(0, 1fr); }
+.map-panel { min-width: 0; }
+#map { width: 100%; height: clamp(420px, 68vh, 900px); background: #e8eaed; }
+#map .leaflet-control a { color: #263445; }
+#map .leaflet-control-layers label { margin: 0; }
+#map .leaflet-control-layers input { width: auto; padding: 0; }
+.legend { flex-wrap: wrap; gap: 8px 24px; }
+.gps-legend { color: #ff9f43; }
+#basemap-status { display: block; margin-top: 8px; }
+#basemap-status:empty { display: none; }
+@media (max-width: 800px) {
+  main { grid-template-columns: minmax(0, 1fr); }
+  #map { height: clamp(320px, 60vh, 600px); }
+}
 </style></head><body>
 <header><div><h1>Path<span>Snap</span></h1><small>GPS → road network → reconstructed route</small></div><div class="status" id="status" role="status">Disconnected</div></header>
-<main><aside class="panel"><h2>Route console</h2><label for="api">Laptop 1 API address</label><input id="api" type="url" spellcheck="false"><button class="secondary" id="connect">Connect</button><label for="trip">Trip</label><select id="trip" disabled><option value="">Connect to load trips</option></select><button id="run" disabled>Reconstruct route</button><button class="secondary" id="export" disabled>Download Folium map</button><p id="message" role="status">Waiting for a connection.</p><div id="metrics" aria-live="polite"></div></aside><section class="panel"><h2>Route map</h2><div id="summary" class="muted">Select a trip to begin.</div><div id="map" aria-label="GPS and predicted route map"></div><div class="legend"><span>● Raw GPS</span><span class="teal">● Predicted route</span></div></section></main>
+<main><aside class="panel"><h2>Route console</h2><label for="api">Laptop 1 API address</label><input id="api" type="url" spellcheck="false"><button class="secondary" id="connect">Connect</button><label for="trip">Trip</label><select id="trip" disabled><option value="">Connect to load trips</option></select><button id="run" disabled>Reconstruct route</button><button class="secondary" id="export" disabled>Download Folium map</button><p id="message" role="status">Waiting for a connection.</p><div id="metrics" aria-live="polite"></div></aside>
+<section class="panel map-panel">
+  <h2>Route map</h2>
+  <div id="summary" class="muted">Select a trip to begin.</div>
+  <div id="map" aria-label="GPS and predicted route map"></div>
+  <small id="basemap-status" role="status"></small>
+  <div class="legend"><span class="gps-legend">┄ Raw GPS</span><span class="teal">━ Predicted route</span></div>
+</section></main>
 <script src="vendor/leaflet.js"></script><script src="app.js"></script></body></html>

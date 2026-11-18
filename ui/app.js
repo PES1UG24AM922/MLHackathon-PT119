@@ -1,10 +1,31 @@
 const byId = id => document.getElementById(id);
-const map = L.map("map", {preferCanvas: true}).setView([20, 0], 2);
+const map = L.map("map", {preferCanvas: true, maxZoom: 20}).setView([20, 0], 2);
+const streetMap = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxNativeZoom: 19,
+  maxZoom: 20,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+const plainMap = L.layerGroup();
+const predictedRoute = L.featureGroup().addTo(map);
+const rawGps = L.featureGroup().addTo(map);
+map.createPane("rawGps").style.zIndex = 410;
+L.control.layers({"Street map": streetMap, "Plain background": plainMap}, {
+  "Raw GPS": rawGps,
+  "Predicted route": predictedRoute
+}, {collapsed: false}).addTo(map);
+L.control.scale({imperial: false}).addTo(map);
+
+streetMap.on("tileerror", () => {
+  byId("basemap-status").textContent = "Some map tiles could not load. Street and place labels need internet access.";
+});
+streetMap.on("loading", () => { byId("basemap-status").textContent = ""; });
+map.on("baselayerchange", () => { byId("basemap-status").textContent = ""; });
+new ResizeObserver(() => map.invalidateSize({pan: false})).observe(byId("map"));
+
 let base = "";
 let busy = false;
 let ready = false;
 let result = null;
-let layer = null;
 
 function controls() {
   byId("trip").disabled = busy || !ready;
@@ -15,10 +36,8 @@ function controls() {
 }
 
 function clearResult() {
-  if (layer) {
-    layer.remove();
-    layer = null;
-  }
+  rawGps.clearLayers();
+  predictedRoute.clearLayers();
   result = null;
   byId("summary").textContent = "Select a trip to begin.";
   byId("metrics").replaceChildren();
@@ -86,12 +105,24 @@ byId("run").onclick = async () => {
       body: JSON.stringify({trip_id: byId("trip").value})
     }, 300000);
     const data = await response.json();
-    layer = L.featureGroup().addTo(map);
-    L.polyline(data.gps.map(point => [point.lat, point.lon]), {color: "#93a4b8", weight: 2}).addTo(layer);
+    const gps = data.gps.map(point => [point.lat, point.lon]);
     for (const segment of data.route_segments) {
-      L.polyline(segment.map(point => [point.lat, point.lon]), {color: "#13b8a6", weight: 5}).addTo(layer);
+      L.polyline(segment.map(point => [point.lat, point.lon]), {
+        color: "#00877a", weight: 6
+      }).addTo(predictedRoute);
     }
-    map.fitBounds(layer.getBounds(), {padding: [20, 20], maxZoom: 17});
+    if (gps.length === 1) {
+      L.circleMarker(gps[0], {
+        pane: "rawGps", radius: 5, color: "#c4530b", fillColor: "#ff9f43", fillOpacity: 1
+      }).addTo(rawGps);
+    } else {
+      L.polyline(gps, {
+        pane: "rawGps", color: "#ed7617", weight: 4, dashArray: "5 8"
+      }).addTo(rawGps);
+    }
+    const bounds = L.latLngBounds(gps).extend(predictedRoute.getBounds());
+    map.invalidateSize({pan: false});
+    map.fitBounds(bounds, {padding: [24, 24], maxZoom: 17});
     byId("summary").textContent = "Trip " + data.trip_id + " · " + data.gps.length +
       " GPS points · " + data.route_segments.length + " route segments";
     byId("message").textContent = (data.duration_ms / 1000).toFixed(2) + " s · " +
