@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pathsnap"
+version = "0.1.0"
+description = "PathSnap map-matching and route reconstruction components"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scipy>=1.10",
+  "scikit-learn>=1.3",
+  "joblib>=1.3",
+  "pyproj>=3.6",
+]
+
+[project.optional-dependencies]
+visualization = ["folium>=0.15", "matplotlib>=3.7"]
+test = ["pytest>=7.4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,1 @@
+"""PathSnap reusable project package."""
