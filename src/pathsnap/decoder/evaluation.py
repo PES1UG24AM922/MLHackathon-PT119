@@ -6,7 +6,7 @@ import math
 from typing import Iterable
 
 from .graph import RoadGraph
-from .schemas import DecodeResult, GPSPoint
+from .schemas import CandidateScore, DecodeResult, GPSPoint
 
 
 def macro_f1(y_true: list[int], y_pred: list[int]) -> float:
@@ -111,19 +111,19 @@ def candidate_miss_rate(candidate_miss_flags: Iterable[bool]) -> float:
 
 
 def final_candidate_miss_rate(
-    gps_points: Iterable[GPSPoint], candidate_scores, reference_labels: dict[int, int]
+    gps_points: Iterable[GPSPoint],
+    candidate_scores: Iterable[CandidateScore],
+    reference_labels: dict[int, int],
 ) -> float:
-    """Candidate miss rate over final candidate groups, including zero rows."""
-    by_point: dict[int, list] = {}
+    """Measure whether each eligible reference arc is in its final candidate set."""
+    by_point: dict[int, set[int]] = {}
     for score in candidate_scores:
-        by_point.setdefault(score.gps_point_idx, []).append(score)
-    flags = []
-    for point in gps_points:
-        if not point.usable or point.gps_point_idx not in reference_labels:
-            continue
-        rows = by_point.get(point.gps_point_idx, [])
-        flags.append(not rows or any(row.candidate_miss for row in rows))
-    return candidate_miss_rate(flags)
+        by_point.setdefault(score.gps_point_idx, set()).add(score.candidate_arc_id)
+    return candidate_miss_rate(
+        reference_labels[point.gps_point_idx] not in by_point.get(point.gps_point_idx, ())
+        for point in gps_points
+        if point.usable and point.gps_point_idx in reference_labels
+    )
 
 
 def result_prediction_map(result: DecodeResult) -> dict[int, int | None]:

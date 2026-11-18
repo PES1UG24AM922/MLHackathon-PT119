@@ -176,6 +176,8 @@ class HMMDecoder:
                 best_score = -math.inf
                 best_prior_arc: int | None = None
                 for prior_arc, prior_score in scores[-1].items():
+                    if not math.isfinite(prior_score):
+                        continue
                     prior_state = state_maps[-1][prior_arc]
                     transition = self.transitions.score(
                         prior,
@@ -192,7 +194,9 @@ class HMMDecoder:
                         + transition.log_probability
                         + self.config.emission_weight * current_state.log_emission
                     )
-                    if self._better(candidate_score, prior_arc, best_score, best_prior_arc):
+                    if math.isfinite(candidate_score) and self._better(
+                        candidate_score, prior_arc, best_score, best_prior_arc
+                    ):
                         best_score = candidate_score
                         best_prior_arc = prior_arc
                 if best_prior_arc is not None:
