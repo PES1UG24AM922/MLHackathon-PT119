@@ -259,6 +259,16 @@ def make_report(output, plot_dir, api_screenshot=None):
     p(f"Histogram gradient boosting led the original comparison at {pct(selected.cv_top1)} grouped CV Top-1. "
       "Top-1 measures how often the scorer ranks the reference arc first, which is the relevant choice passed "
       "to the sequence decoder.")
+    counts = dataframe(RESULTS / "candidate_confusion_counts.csv").set_index("model").loc["Tuned sigmoid"]
+    p("Confusion matrix for the deployed scorer", "Heading2")
+    table([
+        ["Actual class", "Predicted non-match", "Predicted match"],
+        ["Non-match", f"{counts.tn:,}", f"{counts.fp:,}"],
+        ["Reference match", f"{counts.fn:,}", f"{counts.tp:,}"],
+    ], [156, 150, 150])
+    p(f"Calibrated histogram gradient boosting at a 0.5 threshold, evaluated on {int(counts.sum()):,} "
+      "candidate arcs across all ten student-test trips. One observation can have multiple candidates. "
+      "Counts come from results/final/candidate_confusion_counts.csv.", "Evidence")
 
     for section, subset in (("A", models.iloc[:4]), ("B", models.iloc[4:])):
         title(f"SECTION 3   /   MODEL NOTES {section}", "Model behavior")
