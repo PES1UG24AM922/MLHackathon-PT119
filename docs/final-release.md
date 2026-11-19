@@ -127,6 +127,6 @@ To rebuild it from the tracked evidence:
 
 To reproduce the supplementary MLP training/validation loss curve, run
 `python -m scripts.mlp_validation_history --data ../pathsnap-student` after
-preparing the student data. The report reads the three committed `demo_*.png`
+preparing the student data. The report reads the two committed `demo_*.png`
 captures in `results/final/`. To update the second-laptop screenshot, pass
 `--api-screenshot PATH_TO_CAPTURE.png` when rebuilding the report.

@@ -119,8 +119,6 @@ def make_report(output, plot_dir, api_screenshot=None):
     misses = dataframe(RESULTS / "replay_candidate_misses.csv")
     diagnostics = dataframe(RESULTS / "student_model_diagnostics.csv")
     models = diagnostics[diagnostics.model.isin(FAMILIES)]
-    confusion = dataframe(RESULTS / "candidate_confusion_counts.csv")
-    confusion = confusion[confusion.model.isin(FAMILIES)]
     historical = dataframe(Path("results/model_comparison.csv"))
     folds = dataframe(RESULTS / "diagnostics_folds.csv")
     optimum = json.loads((RESULTS / "model_selection.json").read_text())
@@ -130,7 +128,6 @@ def make_report(output, plot_dir, api_screenshot=None):
     decoder = dataframe(RESULTS / "classifier_vs_hmm.csv").set_index("method")
     by_trip = dataframe(RESULTS / "classifier_vs_hmm_by_trip.csv")
     api = dataframe(RESULTS / "api_student_test.csv")
-    api_recheck = dataframe(RESULTS / "api_submission_recheck.csv")
     make_plots(models, search, plot_dir)
     grouped_loss = dataframe(RESULTS / "mlp_grouped_loss.csv")
     fig, ax = plt.subplots(figsize=(8.5, 2.7), layout="constrained")
@@ -262,12 +259,6 @@ def make_report(output, plot_dir, api_screenshot=None):
     p(f"Histogram gradient boosting led the original comparison at {pct(selected.cv_top1)} grouped CV Top-1. "
       "Top-1 measures how often the scorer ranks the reference arc first, which is the relevant choice passed "
       "to the sequence decoder.")
-    table([["Model", "True negative", "False positive", "False negative", "True positive"]] + [
-        [DISPLAY[row.model], f"{row.tn:,}", f"{row.fp:,}", f"{row.fn:,}", f"{row.tp:,}"]
-        for row in confusion.itertuples()
-    ], [124, 89, 89, 89, 89], wrapped=True)
-    p("Candidate confusion counts at a 0.5 threshold, using 183,413 candidates per model. "
-      "Source: results/final/candidate_confusion_counts.csv.", "Evidence")
 
     for section, subset in (("A", models.iloc[:4]), ("B", models.iloc[4:])):
         title(f"SECTION 3   /   MODEL NOTES {section}", "Model behavior")
@@ -377,17 +368,14 @@ def make_report(output, plot_dir, api_screenshot=None):
     p("Sources: results/final/classifier_vs_hmm_by_trip.csv and decoder_tuning_folds.csv.", "Evidence")
 
     title("SECTION 6   /   FOLIUM VISUALIZATION", "Student-test trip 00000000")
-    image(RESULTS / "student_test_map.png", 208)
-    p("Full trip. The raw GPS is navy and dashed, including start and end markers. Gray shows the candidate "
-      "road network, orange the student-test reference, and teal the HMM route.", "Evidence")
-    image(RESULTS / "student_test_map_detail.png", 208)
-    p("Zoomed view near the first GPS observation. Use the layer controls to compare the routes or isolate "
-      "the raw GPS and nearby candidate arcs.", "Evidence")
+    image(RESULTS / "student_test_map.png", 250)
+    p("Zoomed view near the first GPS observation. The dashed navy trace is raw GPS, gray shows candidate road arcs, "
+      "orange shows the student-test reference, and teal shows the HMM route. The layer controls toggle each overlay.", "Evidence")
     p(f'<a href="{REPO}/blob/main/results/final/student_test_map.html" color="#007e72">Interactive Folium HTML</a>. '
       "Download the file and open it in a browser for the layer controls. Generate it with scripts/final_decode.py.",
       "Evidence")
 
-    title("SECTION 7   /   API, UI AND DEPLOYMENT", "Route console")
+    title("SECTION 7   /   API, UI AND DEPLOYMENT", "Working UI and API responses")
     image(RESULTS / "demo_route_console.png", 310)
     p("Student-test trip 00000040, with 2,995 GPS points and one predicted segment. The result shows 93.1% point "
       "Top-1 and 90.7% ordered-route F1. Orange marks the GPS trace and teal marks the predicted route.", "Evidence")
@@ -397,13 +385,10 @@ def make_report(output, plot_dir, api_screenshot=None):
       "prediction, to compute aggregate scores.")
     p(f"The recorded student-test acceptance run returned HTTP 200 for {int((api.status == 200).sum())}/{len(api)} "
       f"trips and downloaded each Folium map. Median server prediction time was {api.duration_ms.median()/1000:.2f} s.")
-    p(f"The Mac recheck reproduced the stored accuracy, ordered-route scores and segment counts for all {len(api_recheck)} "
-      f"trips. Median prediction time was {api_recheck.duration_ms.median()/1000:.2f} s on that host.")
-    p(f'Sources: results/final/api_student_test.csv, api_submission_recheck.csv, and '
+    p(f'Sources: results/final/api_student_test.csv and '
       f'<a href="{REPO}/blob/main/docs/final-release.md" color="#007e72">the deployment guide</a>.', "Evidence")
 
-    title("SECTION 7   /   LIVE HTTP EVIDENCE", "API responses")
-    p("Second laptop terminal", "Heading2")
+    p("HTTP responses on the second laptop", "Heading2")
     if api_screenshot is None:
         image(RESULTS / "demo_second_laptop_log.png", 120)
         p("Team capture from the second laptop. The terminal log records HTTP 200 for three live "
@@ -412,11 +397,6 @@ def make_report(output, plot_dir, api_screenshot=None):
     else:
         image(api_screenshot, 160)
         p("API evidence captured on the second laptop.", "Evidence")
-    p("API response body", "Heading2")
-    image(RESULTS / "demo_api_response.png", 215)
-    p("Separate terminal request on the host Mac for student-test trip 00000000. The HTTP 200 response includes "
-      "the request ID, prediction duration and aggregate route metrics. The displayed excerpt omits geometry arrays.",
-      "Evidence")
     p("AI assistance was used for implementation support, verification scripts and report editing. The figures and "
       "metrics come from the recorded experiments and live captures.", "Evidence")
 

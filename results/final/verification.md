@@ -13,4 +13,3 @@ segment counts, and successful offline map exports.
 The submission revision passed 36 automated tests. A fresh HTTP run on the Mac
 passed the ten predictions, ten Folium exports, UI assets, and invalid-request
 checks. Point and route metrics and segment counts matched the archived run.
-The per-trip receipts are in `api_submission_recheck.csv`.
