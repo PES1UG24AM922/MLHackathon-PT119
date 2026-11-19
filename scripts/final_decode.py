@@ -108,20 +108,24 @@ def write_map(path, trip, graph, gps, scores, geometry, reference):
     view = offline_folium_map(coords)
     network = folium.FeatureGroup(name="Candidate road network").add_to(view)
     for arc in sorted({score.candidate_arc_id for score in scores}):
-        folium.PolyLine(graph.arc_geometry_latlon(arc), color="#7b8ca0", opacity=0.32, weight=1).add_to(network)
-    track_layer = folium.FeatureGroup(name="Raw GPS").add_to(view)
-    folium.PolyLine(coords, color="#273954", weight=2).add_to(track_layer)
+        folium.PolyLine(graph.arc_geometry_latlon(arc), color="#8295a9", opacity=0.55, weight=1.5).add_to(network)
     ref_layer = folium.FeatureGroup(name="Student-test reference").add_to(view)
     for arc in reference:
-        folium.PolyLine(graph.arc_geometry_latlon(int(arc)), color="#d98229", weight=6, opacity=0.65).add_to(ref_layer)
+        folium.PolyLine(graph.arc_geometry_latlon(int(arc)), color="#c77628", weight=6, opacity=0.8).add_to(ref_layer)
     result_layer = folium.FeatureGroup(name="HMM predicted route").add_to(view)
     for segment in geometry:
         folium.PolyLine([(p["lat"], p["lon"]) for p in segment], color="#007d70", weight=3).add_to(result_layer)
+    track_layer = folium.FeatureGroup(name="Raw GPS").add_to(view)
+    folium.PolyLine(coords, color="#273954", dash_array="4 5", opacity=0.8, weight=2).add_to(track_layer)
+    for label, point in (("First GPS observation", coords[0]), ("Last GPS observation", coords[-1])):
+        folium.CircleMarker(point, radius=5, color="#273954", fill=True, fill_opacity=1, tooltip=label).add_to(track_layer)
     folium.LayerControl(collapsed=False).add_to(view)
     view.get_root().header.add_child(folium.Element(
         f"<title>Student-test comparison · {trip.trip_id}</title><meta name='referrer' content='no-referrer'>"
+        "<style>.leaflet-container {background: #f6f8fa;}</style>"
     ))
-    path.write_text(view.get_root().render(), encoding="utf-8")
+    rendered = view.get_root().render()
+    path.write_text("\n".join(line.rstrip() for line in rendered.split("\n")), encoding="utf-8")
 
 
 def scored_groups(frame, probabilities, fold=None):

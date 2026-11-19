@@ -84,14 +84,21 @@ def sample_rows(data, rows, cap, seed):
     return rows[keep]
 
 
+def observation_starts(trips, points):
+    return np.r_[0, np.flatnonzero((trips[1:] != trips[:-1]) | (points[1:] != points[:-1])) + 1]
+
+
+def top_candidates(probabilities, starts):
+    counts = np.diff(np.r_[starts, len(probabilities)])
+    maximum = np.repeat(np.maximum.reduceat(probabilities, starts), counts)
+    locations = np.arange(len(probabilities))
+    return np.minimum.reduceat(np.where(probabilities == maximum, locations, len(probabilities)), starts)
+
+
 def score(data, rows, probabilities):
     yt = data.y[rows]
-    trips, points = data.trip[rows], data.point[rows]
-    starts = np.r_[0, np.flatnonzero((trips[1:] != trips[:-1]) | (points[1:] != points[:-1])) + 1]
-    counts = np.diff(np.r_[starts, len(yt)])
-    maximum = np.repeat(np.maximum.reduceat(probabilities, starts), counts)
-    locations = np.arange(len(yt))
-    best = np.minimum.reduceat(np.where(probabilities == maximum, locations, len(yt)), starts)
+    starts = observation_starts(data.trip[rows], data.point[rows])
+    best = top_candidates(probabilities, starts)
     precision, recall, f1, _ = precision_recall_fscore_support(
         yt, probabilities >= 0.5, average="macro", zero_division=0
     )

@@ -1,13 +1,13 @@
-"""Build the consolidated report from committed evidence and local demo captures."""
+"""Build the consolidated report from the committed results and demo captures."""
 import argparse
 import json
-from ast import literal_eval
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
 import numpy as np
 import pandas as pd
 from PIL import Image as PixelImage
@@ -16,7 +16,7 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Image, PageBreak, Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 RESULTS = Path("results/final")
 DARK = colors.HexColor("#16283d")
@@ -34,13 +34,42 @@ FAMILIES = {
                            "L2-regularized binary log loss"),
     "RandomForest": ("Bagged trees", "Tree splits capture interactions and directional thresholds. "
                      "Aggregating many trees handles noise but increases model size and inference work.",
-                     "Mean class probability from Gini-split trees"),
+                     "Gini impurity reduction at each split"),
     "HistGradientBoosting": ("Boosted trees", "Histogram splits capture nonlinear spatial and temporal features "
                              "without enumerating all thresholds. Small leaves and regularization limit complexity.",
                              "Binary log loss over additive trees"),
     "MLP": ("Neural network", "A small dense network mixes standardized features and learns nonlinear combinations. "
             "Its result depends on feature scaling and optimization budget.",
             "Binary cross-entropy with Adam and L2 regularization"),
+    "KNeighbors": ("Instance-<br/>based", "Nearby feature vectors can share a road-matching pattern. "
+                   "Dense candidate groups and sparse training coverage can make nearest neighbors misleading.",
+                   "Distance-weighted neighbor vote, with no fitted loss"),
+    "ExtraTrees": ("Randomized trees", "Randomized split thresholds diversify the trees and model interactions "
+                  "among distance, heading, and road geometry. Individual splits can miss sharp boundaries.",
+                  "Gini impurity at randomized splits"),
+}
+
+DISPLAY = {"GaussianNB": "Gaussian NB", "LogisticRegression": "Logistic regression",
+           "RandomForest": "Random forest", "HistGradientBoosting": "Histogram GB", "MLP": "MLP",
+           "KNeighbors": "K-nearest neighbors", "ExtraTrees": "Extra Trees"}
+SUMMARY_CONFIG = {
+    "GaussianNB": "Smoothing 1e-9",
+    "LogisticRegression": "C 1.0, standardized",
+    "RandomForest": "48 trees, depth 13, leaf 8, features 0.8",
+    "HistGradientBoosting": "70 iterations, 23 leaves, rate 0.12, L2 0.3",
+    "MLP": "24 units, batch 512, rate 0.003, alpha 1e-4",
+    "KNeighbors": "k 15, distance weights, 10k fit rows",
+    "ExtraTrees": "100 trees, depth 16, leaf 5, bootstrap",
+}
+REPO = "https://github.com/PES1UG24AM922/MLHackathon-PT119"
+MODEL_READOUT = {
+    "GaussianNB": "Its low Top-1 in both checks is consistent with a weaker fit than the tree models.",
+    "LogisticRegression": "It recovers much of the tree models' accuracy with faster inference, but trails on observation log loss.",
+    "RandomForest": "It closes most of the Top-1 and macro F1 gap to boosting and outperforms Extra Trees on both.",
+    "HistGradientBoosting": "It has the highest Top-1 and lowest student-test observation log loss among the untuned scorers.",
+    "MLP": "Its Top-1 is close to the logistic baseline, with lower observation log loss. The grouped loss curve is on the next model-diagnostics page.",
+    "KNeighbors": "It has the highest log loss and slowest scoring in this replay. A zero score on a retrieved reference arc is heavily penalized.",
+    "ExtraTrees": "It is less accurate than the random forest here, with fewer false-positive candidate decisions and more false negatives at 0.5.",
 }
 
 
@@ -57,26 +86,22 @@ def dataframe(path):
 
 
 def make_plots(models, optimization, destinations):
-    plt.rcParams.update({"font.size": 9, "axes.spines.right": False, "axes.spines.top": False})
-    fig, axes = plt.subplots(1, 3, figsize=(10, 3.25), layout="constrained")
+    plt.rcParams.update({"font.size": 10, "axes.spines.right": False, "axes.spines.top": False})
+    fig, axes = plt.subplots(2, 2, figsize=(8.5, 5.5), layout="constrained")
     y = np.arange(len(models))
-    labels = ["Gaussian NB", "Logistic", "Random Forest", "Histogram GB", "MLP"]
-    axes[0].barh(y, models.cv_macro_f1, color="#007e72")
-    axes[0].set_yticks(y, labels=labels)
-    axes[0].set_xlim(.7, 1)
-    axes[0].set_title("CV candidate macro F1")
-    axes[1].barh(y - .16, models.student_top1, height=.3, label="Point Top-1", color="#007e72")
-    axes[1].barh(y + .16, models.student_macro_f1, height=.3, label="Candidate F1", color="#7793ad")
-    axes[1].set_yticks(y, labels=[])
-    axes[1].set_xlim(.65, 1)
-    axes[1].set_title("Student-test scores")
-    axes[1].legend(loc="lower right", fontsize=7)
-    axes[2].barh(y, models.student_log_loss, color="#d68a3d")
-    axes[2].set_yticks(y, labels=[])
-    axes[2].set_title("Student-test log loss")
-    for ax in axes:
+    labels = [DISPLAY[model] for model in models.model]
+    metrics = [("cv_macro_f1", "Training CV candidate macro F1", True),
+               ("student_top1", "Student-test observation Top-1", True),
+               ("student_obs_macro_f1", "Student-test observation macro F1", True),
+               ("student_obs_log_loss", "Student-test observation log loss", False)]
+    for index, (ax, (field, label, is_fraction)) in enumerate(zip(axes.flat, metrics)):
+        ax.scatter(models[field], y, color="#bf783c" if not is_fraction else "#007e72", s=25, zorder=3)
+        ax.set_yticks(y, labels=labels if index % 2 == 0 else [""] * len(labels))
+        ax.set_title(label, fontsize=10)
+        if is_fraction:
+            ax.xaxis.set_major_formatter(PercentFormatter(1, decimals=0))
         ax.invert_yaxis()
-        ax.grid(axis="x", alpha=.18)
+        ax.grid(alpha=.20)
     fig.savefig(destinations / "model_comparison.png", dpi=155, bbox_inches="tight")
     plt.close(fig)
     fig, ax = plt.subplots(figsize=(8.5, 2.5), layout="constrained")
@@ -91,28 +116,22 @@ def make_plots(models, optimization, destinations):
 
 def make_report(output, plot_dir, api_screenshot=None):
     eda = dataframe(Path("results/eda_split_summary.csv"))
-    misses = dataframe(RESULTS / "candidate_miss_rate.csv")
-    models = dataframe(RESULTS / "model_comparison.csv")
+    misses = dataframe(RESULTS / "replay_candidate_misses.csv")
+    diagnostics = dataframe(RESULTS / "student_model_diagnostics.csv")
+    models = diagnostics[diagnostics.model.isin(FAMILIES)]
+    confusion = dataframe(RESULTS / "candidate_confusion_counts.csv")
+    confusion = confusion[confusion.model.isin(FAMILIES)]
     historical = dataframe(Path("results/model_comparison.csv"))
-    folds = dataframe(RESULTS / "model_folds.csv")
+    folds = dataframe(RESULTS / "diagnostics_folds.csv")
     optimum = json.loads((RESULTS / "model_selection.json").read_text())
     search = dataframe(RESULTS / "bayesian_trials.csv")
-    bayes = dataframe(RESULTS / "bayesian_comparison.csv")
+    bayes = diagnostics.set_index("model").loc[[optimum["winner"], "Tuned raw", "Tuned sigmoid"]]
     tuning = dataframe(RESULTS / "decoder_trials.csv")
     decoder = dataframe(RESULTS / "classifier_vs_hmm.csv").set_index("method")
     by_trip = dataframe(RESULTS / "classifier_vs_hmm_by_trip.csv")
     api = dataframe(RESULTS / "api_student_test.csv")
+    api_recheck = dataframe(RESULTS / "api_submission_recheck.csv")
     make_plots(models, search, plot_dir)
-    learning = dataframe(RESULTS / "mlp_learning_history.csv")
-    fig, left = plt.subplots(figsize=(8.5, 2.35), layout="constrained")
-    right = left.twinx()
-    left.plot(learning.iteration, learning.training_loss, color="#007e72")
-    right.plot(learning.iteration, learning.internal_validation_accuracy, color="#b06928")
-    left.set(xlabel="MLP iteration", ylabel="Training loss")
-    right.set_ylabel("Internal validation accuracy", color="#b06928")
-    right.spines["right"].set_visible(True)
-    fig.savefig(plot_dir / "mlp_learning_history.png", dpi=155, bbox_inches="tight")
-    plt.close(fig)
     grouped_loss = dataframe(RESULTS / "mlp_grouped_loss.csv")
     fig, ax = plt.subplots(figsize=(8.5, 2.7), layout="constrained")
     ax.plot(grouped_loss.epoch, grouped_loss.training_log_loss, color="#007e72", label="Fit trips")
@@ -122,20 +141,17 @@ def make_report(output, plot_dir, api_screenshot=None):
     ax.legend()
     fig.savefig(plot_dir / "mlp_grouped_loss.png", dpi=155, bbox_inches="tight")
     plt.close(fig)
-    plt.close(fig)
 
     styles = getSampleStyleSheet()
     font_dir = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
     for name, filename in (
         ("PathSnapSans", "DejaVuSans.ttf"),
         ("PathSnapSans-Bold", "DejaVuSans-Bold.ttf"),
-        ("PathSnapMono", "DejaVuSansMono.ttf"),
     ):
         pdfmetrics.registerFont(TTFont(name, str(font_dir / filename)))
     pdfmetrics.registerFontFamily("PathSnapSans", normal="PathSnapSans", bold="PathSnapSans-Bold")
     styles["Title"].fontName = styles["Heading2"].fontName = "PathSnapSans-Bold"
     styles["BodyText"].fontName = "PathSnapSans"
-    styles["Code"].fontName = "PathSnapMono"
     styles["Title"].alignment = TA_LEFT
     styles["Title"].textColor = DARK
     styles["Title"].fontSize = 25
@@ -147,6 +163,8 @@ def make_report(output, plot_dir, api_screenshot=None):
                               spaceAfter=8, textColor=ACCENT))
     styles.add(ParagraphStyle(name="Evidence", fontName="PathSnapSans", fontSize=8.2, leading=11,
                               textColor=MUTED, spaceBefore=5, spaceAfter=5))
+    styles.add(ParagraphStyle(name="Cell", fontName="PathSnapSans", fontSize=7.6, leading=9.6, textColor=DARK))
+    styles.add(ParagraphStyle(name="CellHeader", parent=styles["Cell"], fontName="PathSnapSans-Bold", textColor=colors.white))
     story = []
 
     def p(body, style="BodyText"):
@@ -164,21 +182,25 @@ def make_report(output, plot_dir, api_screenshot=None):
         scale = min(width / w, max_height / h)
         story.append(Image(str(path), width=w * scale, height=h * scale, hAlign="CENTER"))
 
-    def table(rows, widths):
-        block = Table(rows, colWidths=widths, repeatRows=1)
+    def table(rows, widths, wrapped=False):
+        values = [[Paragraph(str(value), styles["CellHeader" if index == 0 else "Cell"])
+                   for value in row] for index, row in enumerate(rows)] if wrapped else rows
+        block = Table(values, colWidths=widths, repeatRows=1)
         block.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), DARK),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ("FONTNAME", (0, 0), (-1, -1), "PathSnapSans"),
             ("FONTNAME", (0, 0), (-1, 0), "PathSnapSans-Bold"),
             ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
             ("TOPPADDING", (0, 0), (-1, -1), 7),
             ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, PAPER]),
         ]))
         story.extend([block, Spacer(1, 8)])
 
-    title("PATHSNAP   /   TEAM PT119   /   19 NOVEMBER 2026", "Dataset understanding and preprocessing")
+    title("PES UNIVERSITY   /   UE24CS352A   /   TEAM PT119", "PathSnap technical report")
+    p("2. Dataset and preprocessing", "Heading2")
     p("PathSnap matches noisy GPS observations to directed road arcs and reconstructs a route. "
       "The development evidence uses 80 training and 10 student-test trips. Reserved evaluator data "
       "was excluded from preprocessing experiments, training, tuning, and this report.")
@@ -197,71 +219,93 @@ def make_report(output, plot_dir, api_screenshot=None):
       "distinct during alignment. That alignment supplies training targets and server-side point scoring.")
     p("Candidate generation and features", "Heading2")
     p("We search a spatial index at a 50 m radius, keep the best 20 candidates, and use a nearest-sample fallback "
-      "when the radius is empty. The 14 features encode point-to-arc and endpoint distances, relative rank and count, "
-      "projection position, length, direction agreement, speed, time gap and neighboring point distances. "
-      "The training miss rate includes reference targets absent from the final candidate set, which limits Top-1.")
+      "when the radius is empty. Distance, rank and projection position measure proximity. Road direction, speed, "
+      "time gaps and distances to neighboring points help distinguish parallel roads, reverse arcs, and GPS gaps. "
+      "Candidate misses are reference arcs absent from the resulting search set.")
     image(Path("eda/PathSnap_EDA_outputs/01_gps_observations_hist.png"), 190)
-    p("Evidence: results/eda_split_summary.csv and results/final/candidate_miss_rate.csv. The histogram "
-      "comes from the executed team EDA notebook.", "Evidence")
+    p("Train and student-test trajectory sizes and durations. Sources: eda/PathSnap_EDA.ipynb, "
+      "results/eda_split_summary.csv, and results/final/replay_candidate_misses.csv.", "Evidence")
 
     title("SECTION 2   /   EXPLORATORY DATA ANALYSIS", "Trajectories and road connectivity")
     image(Path("eda/PathSnap_EDA_outputs/05_reference_vs_gps.png"), 280)
-    p("The trajectory diagnostic compares raw observations with reference geometry. Noise and road geometry make "
-      "nearest-arc assignment ambiguous, particularly where arcs run parallel or cross.")
+    p("Training trip 00000001 shows GPS drift around parallel roads and junctions. The interactive map "
+      "for this corridor is eda/PathSnap_EDA_outputs/06_train_trip_00000001_map.html.")
     image(Path("eda/PathSnap_EDA_outputs/04_connectivity.png"), 225)
-    p("Network connectivity diagnostic from the team EDA outputs. Directed reachability and long timestamp gaps "
-      "are handled by decoder path checks and explicit segment breaks.", "Evidence")
+    p("Both partitions contain road graphs where weak connectivity exceeds strong connectivity. The decoder uses "
+      "directed path checks and starts a new segment after a long gap or an unreachable transition.", "Evidence")
 
-    title("SECTION 3   /   GROUPED VALIDATION", "Five-model comparison")
-    p("Each of five folds holds out whole trips. Up to 80,000 stratified candidate rows are used per fit. "
-      "Validation and student-test scoring use all candidates. Model selection uses mean training-fold "
-      "observation Top-1. The student-test partition is held until model and Bayesian choices are locked.")
-    rows = [["Model", "CV F1", "CV Top-1", "Test Top-1", "Test F1", "Log loss", "Continuity", "Infer (s)"]]
-    names = ["Gaussian NB", "Logistic", "Random Forest", "Histogram GB", "MLP"]
-    for name, row in zip(names, models.itertuples()):
-        rows.append([name, pct(row.cv_macro_f1), pct(row.cv_top1), pct(row.student_top1),
-                     pct(row.student_macro_f1), number(row.student_log_loss),
+    title("SECTION 3   /   GROUPED VALIDATION", "Model comparison")
+    p("Five-fold cross-validation holds out whole training trips. Most fits use up to 80,000 stratified candidate rows. "
+      "K-nearest neighbors uses 10,000 to bound search cost. The K-nearest neighbors and Extra Trees ordered-label runs "
+      "were added after release model selection. Every model scores the same 19,160 student-test observations.")
+    rows = [["Model", "Family", "Initial configuration", "CV<br/>F1", "Test<br/>Top-1", "Test<br/>F1",
+             "Test<br/>log loss", "Route<br/>cont.", "Infer<br/>(s)"]]
+    for row in models.itertuples():
+        rows.append([DISPLAY[row.model], FAMILIES[row.model][0], SUMMARY_CONFIG[row.model], pct(row.cv_macro_f1),
+                     pct(row.student_top1), pct(row.student_obs_macro_f1), number(row.student_obs_log_loss),
                      pct(row.student_route_continuity), number(row.student_inference_s)])
-    table(rows, [86, 49, 59, 64, 51, 58, 66, 59])
-    image(plot_dir / "model_comparison.png", 195)
-    p("Point Top-1 counts observations whose highest scoring arc equals the aligned target. Candidate macro F1 "
-      "and log loss evaluate candidate labels. Continuity is the mean trip fraction of adjacent, time-eligible "
-      "predictions sharing an arc or a directed endpoint. Scorer time covers all 10 student-test trips.")
-    p("Evidence: model_folds.csv, model_comparison.csv and model_continuity_by_trip.csv under results/final.", "Evidence")
+    table(rows, [65, 62, 101, 41, 44, 43, 43, 45, 36], wrapped=True)
+    p("CV F1 is binary candidate macro F1. Student-test F1 is arc-label macro F1 within each trip, averaged across trips. "
+      "Student-test log loss normalizes scores within each GPS observation. An all-zero score group receives a uniform "
+      "distribution over its candidates. An absent reference arc has probability zero, clipped to 10<super>-15</super> "
+      "for the logarithm. Top-1 and log loss weight each observation equally.")
+    p("Continuity is the mean per-trip fraction of adjacent predictions sharing an arc or a directed endpoint, using "
+      "positive gaps up to 30 seconds. Inference time covers candidate scoring across all ten student-test trips.")
+    p("The replay cache measured an 11.20% training candidate miss rate versus 11.17% in the archived release run. "
+      "The original selection, saved model, and decoder logs are retained. Sources: results/final/student_model_diagnostics.csv, "
+      "diagnostics_folds.csv, and student_diagnostics_by_trip.csv.", "Evidence")
 
-    for section, subset in (("A", models.iloc[:3]), ("B", models.iloc[3:])):
-        title(f"SECTION 3   /   MODEL NOTES {section}", "Algorithms and observed results")
+    title("SECTION 3   /   COMPARISON PLOTS", "Validation and student-test results")
+    image(plot_dir / "model_comparison.png", 365)
+    original = dataframe(RESULTS / "model_comparison.csv").set_index("model")
+    selected = original.loc[optimum["winner"]]
+    p(f"Histogram gradient boosting led the original comparison at {pct(selected.cv_top1)} grouped CV Top-1. "
+      "Top-1 measures how often the scorer ranks the reference arc first, which is the relevant choice passed "
+      "to the sequence decoder.")
+    table([["Model", "True negative", "False positive", "False negative", "True positive"]] + [
+        [DISPLAY[row.model], f"{row.tn:,}", f"{row.fp:,}", f"{row.fn:,}", f"{row.tp:,}"]
+        for row in confusion.itertuples()
+    ], [124, 89, 89, 89, 89], wrapped=True)
+    p("Candidate confusion counts at a 0.5 threshold, using 183,413 candidates per model. "
+      "Source: results/final/candidate_confusion_counts.csv.", "Evidence")
+
+    for section, subset in (("A", models.iloc[:4]), ("B", models.iloc[4:])):
+        title(f"SECTION 3   /   MODEL NOTES {section}", "Model behavior")
         for row in subset.itertuples():
-            family, reasons, loss = FAMILIES[row.model]
+            _, reasons, loss = FAMILIES[row.model]
             spread = folds[folds.model == row.model].top1.std()
-            p(f"{row.model} · {family}", "Heading2")
-            config = ", ".join(f"{key}={value}" for key, value in json.loads(row.configuration).items())
-            if row.model == "MLP":
-                config += ", batch 512, maximum 55 iterations, early stopping"
-            p(f"{reasons} Objective: {loss}. Settings: {config}.")
-            p(f"Student Top-1 {pct(row.student_top1)}, macro F1 {pct(row.student_macro_f1)}, log loss "
-              f"{number(row.student_log_loss)}. CV Top-1 {pct(row.cv_top1)}, with fold SD {pct(spread)}. "
-              "The different trip partitions affect the observed gap. Without a separate training-score comparison, "
-              "the figures alone do not establish overfitting.")
-        if section == "B":
-            image(plot_dir / "mlp_learning_history.png", 138)
-            p("Actual MLP training loss and internal early-stopping validation accuracy. That internal "
-              "candidate split is distinct from the external trip-grouped evaluation.", "Evidence")
-            p("Historical experiments before ordered labels", "Heading2")
-            p("The earlier team comparison also included K-nearest neighbors and Extra Trees. The estimates below "
-              "use the old alignment and are separate from the new model selection.")
-            for key, description in [
-                ("KNeighborsClassifier", "Distance-weighted k=15 on 30,000 training rows uses local similarity "
-                 "and has no optimized training loss. Neighbor searches raised inference cost."),
-                ("ExtraTreesClassifier", "100 trees with depth 16 and a 200,000-row cap used randomized split "
-                 "thresholds and Gini impurity. Randomization trades split precision for diversity.")
-            ]:
-                row = historical[historical.model == key].iloc[0]
-                p(f"<b>{key}</b>: {description} Top-1 {pct(row.test_top1_acc)}, macro F1 {pct(row.test_macro_f1)}, "
-                  f"log loss {number(row.test_log_loss)}. The older run does not isolate generalization from label changes.")
+            p(DISPLAY[row.model], "Heading2")
+            p(f"{reasons} Training objective: {loss}. Initial setup: {SUMMARY_CONFIG[row.model]}.")
+            p(f"Student-test Top-1 {pct(row.student_top1)}, observation macro F1 {pct(row.student_obs_macro_f1)}, "
+              f"observation log loss {number(row.student_obs_log_loss)}. Top-1 on ten fit-pool trips was "
+              f"{pct(row.fit_pool_top1)}. Grouped CV Top-1 was {pct(row.cv_top1)} (fold SD {pct(spread)}). "
+              f"{MODEL_READOUT[row.model]}", "Evidence")
+        p("The fit-pool check uses the ten lowest training trip IDs and the full refit. CV uses fold-specific fits "
+          "and held-out trips. None showed higher Top-1 in the fit-pool check. Trip difficulty differs across the checks, "
+          "so this comparison does not establish how much each model overfits.", "Evidence")
 
-    title("SECTION 3   /   LEARNING CURVES", "MLP training and validation loss")
-    image(plot_dir / "mlp_grouped_loss.png", 210)
+    title("SECTION 3   /   ORIGINAL BASELINES", "Earlier nearest-arc experiment")
+    p("The earlier run derived labels from nearest reference arcs. The release uses ordered alignment. "
+      "The older results below retain their original label definition and fit settings.")
+    historical_names = {"MLPClassifier": "MLP", "RandomForestClassifier": "Random forest",
+                        "HistGradientBoosting": "Histogram GB", "LogisticRegression": "Logistic regression",
+                        "ExtraTreesClassifier": "Extra Trees", "KNeighborsClassifier": "K-nearest neighbors"}
+    historical_settings = {"MLPClassifier": "64 and 32 units, batch 1024, 30 iterations",
+                           "RandomForestClassifier": "100 trees, depth 14, leaf 5, up to 200k samples per tree",
+                           "HistGradientBoosting": "200 iterations, depth 8, learning rate 0.08",
+                           "LogisticRegression": "C 1.0, standardized, up to 500 iterations",
+                           "ExtraTreesClassifier": "100 trees, depth 16, leaf 5, bootstrap",
+                           "KNeighborsClassifier": "k 15, distance weights, KD tree, 30k fit rows"}
+    table([["Model", "Initial configuration", "CV F1", "Test Top-1", "Test F1", "Test loss", "Infer (s)"]] + [
+        [historical_names[row.model], historical_settings[row.model], pct(row.cv_macro_f1_mean),
+         pct(row.test_top1_acc), pct(row.test_macro_f1), number(row.test_log_loss), number(row.test_infer_time_s)]
+        for row in historical.itertuples()
+    ], [80, 155, 44, 54, 45, 50, 52], wrapped=True)
+    p("F1 and log loss in the original run score binary candidate labels. Sources: results/model_comparison.csv "
+      "and src/models/train_compare.py.", "Evidence")
+
+    p("MLP training and validation loss", "Heading2")
+    image(plot_dir / "mlp_grouped_loss.png", 177)
     p("This supplementary diagnostic used the same MLP width, batch size, learning rate and regularization as "
       "the model comparison. It used nine fit trips and three held-out trips from the training partition. "
       "Standardization was fitted on the nine fit trips. Candidate log loss was measured after each epoch "
@@ -270,7 +314,8 @@ def make_report(output, plot_dir, api_screenshot=None):
     last_epoch = grouped_loss.iloc[-1]
     p(f"Validation log loss reached {number(best_epoch.validation_log_loss)} at epoch "
       f"{int(best_epoch.epoch)} and ended at {number(last_epoch.validation_log_loss)}. Final fit-trip loss was "
-      f"{number(last_epoch.training_log_loss)}. These curves describe the recorded trip split.")
+      f"{number(last_epoch.training_log_loss)}. Validation loss did not rise late in this run, so this split "
+      "shows no late-epoch overfitting signal.")
     p("Evidence: results/final/mlp_grouped_loss.csv and scripts/mlp_validation_history.py.", "Evidence")
 
     title("SECTION 4   /   BAYESIAN OPTIMIZATION", "Train-fold search and calibration")
@@ -281,76 +326,99 @@ def make_report(output, plot_dir, api_screenshot=None):
         [name, mode, f"{lo} to {hi}", number(optimum["best_params"][name], 4)]
         for name, (mode, lo, hi) in optimum["search_space"].items()
     ], [173, 82, 125, 112])
+    stage_labels = {optimum["winner"]: "Default", "Tuned raw": "Tuned, raw", "Tuned sigmoid": "Released, calibrated"}
     table([["Stage", "CV Top-1", "CV F1", "Test Top-1", "Test F1", "Test log loss", "Infer (s)"]] + [
-        [row.stage, pct(row.cv_top1), pct(row.cv_macro_f1), pct(row.student_top1),
-         pct(row.student_macro_f1), number(row.student_log_loss), number(row.student_inference_s)]
-        for row in bayes.itertuples()
-    ], [98, 65, 58, 68, 57, 78, 68])
-    image(plot_dir / "bayesian_history.png", 181)
-    diff = (bayes.iloc[1].cv_top1 - bayes.iloc[0].cv_top1) * 100
-    p(f"The best searched trial changed mean CV Top-1 by {diff:+.3f} percentage points versus the default. "
-      "The release uses that searched configuration with sigmoid calibration fitted from training out-of-fold "
-      "scores. Separately, outer-fold decoder probabilities use calibrators that excluded those outer trips. "
-      "No calibrated CV estimate is shown for the refitted production scorer.")
+        [stage_labels[name], ("N/A: student only" if pd.isna(row.cv_top1) else pct(row.cv_top1)),
+         ("N/A: student only" if pd.isna(row.cv_macro_f1) else pct(row.cv_macro_f1)),
+         pct(row.student_top1), pct(row.student_obs_macro_f1), number(row.student_obs_log_loss, 4),
+         number(row.student_inference_s)]
+        for name, row in bayes.iterrows()
+    ], [99, 61, 60, 67, 55, 72, 66], wrapped=True)
+    image(plot_dir / "bayesian_history.png", 163)
+    baseline, tuned = bayes.iloc[:2].itertuples()
+    delta = (tuned.cv_top1 - baseline.cv_top1) * 100
+    p(f"The ordered-label replay changed mean CV Top-1 by {delta:+.3f} percentage points. "
+      f"Student-test Top-1 was {pct(baseline.student_top1)} before tuning and {pct(tuned.student_top1)} after tuning. "
+      "The search did not beat the default on its Top-1 objective. The deployed scorer retains the best searched "
+      "configuration and sigmoid calibration fitted using out-of-fold training scores.")
+    p("The trial plot is from the original run. The paired table replays both raw configurations with identical "
+      "folds and student-test trips. The calibrated row runs the saved production artifact on student-test only. "
+      "Sources: results/final/bayesian_trials.csv, model_selection.json, and student_model_diagnostics.csv.", "Evidence")
 
     title("SECTION 5   /   ROUTE RECONSTRUCTION", "Directed HMM and Viterbi")
-    p("Candidate directed arcs are hidden states. The decoder normalizes calibrated candidate probabilities per "
-      "observation and uses their log scores. Transition scores compare projected GPS displacement with directed "
-      "network distance including offsets on both arcs. Implausible speeds are penalized. Absent candidates, "
-      "time gaps and unreachable transitions split the sequence.")
-    p("Decoder parameter selection", "Heading2")
-    p(f"Three configurations were evaluated on two predetermined length-ranked trips per training fold. "
-      f"Trial {int(tuning.loc[tuning.mean_cv_top1.idxmax(), 'trial'])} won by mean fold Top-1. The student-test comparison "
-      "uses all ten trips. Both classifier-only and HMM paths use the same geometry expansion for ordered-route scoring.")
+    p("The hidden state at each GPS observation is a directed candidate arc. Calibrated candidate scores "
+      "are normalized within the observation and converted to log-emissions. A transition starts at the "
+      "projected position on one arc and ends at the projected position on the next. Its log-score is the "
+      "negative absolute difference between shortest directed path length and GPS displacement, divided by "
+      "18 m. Speeds above the configured limit receive an additional penalty.")
+    p("Viterbi maximizes the sum of emission and transition log-scores. Missing candidates and gaps over 30 "
+      "seconds start a new segment. An unreachable arc-to-arc move has a log-score of negative infinity. "
+      "If no reachable predecessor remains, the decoder restarts at that observation.")
+    p(f"Three decoder configurations were scored on two length-ranked trips per training fold. "
+      f"Trial {int(tuning.loc[tuning.mean_cv_top1.idxmax(), 'trial'])} led by mean fold Top-1. "
+      "Both student-test methods use the same geometry expansion and ordered reference scoring.")
     table([["Method", "Point Top-1", "Point F1*", "Continuity*", "Ordered route F1*", "Decode ms*"]] + [
         [key, pct(row.point_top1), pct(row.point_macro_f1_trip_mean), pct(row.continuity_trip_mean),
          pct(row.ordered_route_f1_trip_mean), number(row.inference_ms_trip_mean, 1)]
         for key, row in decoder.iterrows()
-    ], [78, 77, 65, 74, 107, 91])
-    worse = by_trip[by_trip.hmm_top1 < by_trip.classifier_top1 - 1e-9]
-    p(f"HMM Top-1 changed from {pct(decoder.loc['classifier', 'point_top1'])} to "
-      f"{pct(decoder.loc['hmm', 'point_top1'])}. HMM Top-1 was lower on {len(worse)} of "
-      f"{len(by_trip)} trips. Continuity and ordered overlap score different aspects of route quality, "
-      "so an improvement on one does not guarantee improvements on the others. *Mean over trips.")
-    table([["Trip", "GPS rows", "Classifier Top-1", "HMM Top-1", "HMM ordered route F1"]] + [
+    ], [74, 74, 65, 73, 108, 86])
+    recall_worse = by_trip[by_trip.hmm_ordered_route_recall < by_trip.classifier_ordered_route_recall - 1e-9]
+    example = recall_worse.loc[recall_worse.trip_id == "00000076"].iloc[0]
+    p(f"HMM improved Top-1 and ordered-route F1 on all {len(by_trip)} student-test trips. Ordered-route recall fell "
+      f"on {len(recall_worse)}. For trip {example.trip_id}, recall fell from {pct(example.classifier_ordered_route_recall)} "
+      f"to {pct(example.hmm_ordered_route_recall)}, while precision rose from {pct(example.classifier_ordered_route_precision)} "
+      f"to {pct(example.hmm_ordered_route_precision)}. The HMM also increased mean decode time from 0.14 s to 10.06 s. "
+      "*Mean over trips.")
+    table([["Trip", "GPS rows", "Classifier Top-1", "HMM Top-1", "Classifier route F1", "HMM route F1"]] + [
         [row.trip_id, f"{row.n_points:,}", pct(row.classifier_top1), pct(row.hmm_top1),
-         pct(row.hmm_ordered_route_f1)] for row in by_trip.itertuples()
-    ], [85, 65, 121, 94, 127])
+         pct(row.classifier_ordered_route_f1), pct(row.hmm_ordered_route_f1)]
+        for row in by_trip.itertuples()
+    ], [68, 55, 89, 77, 103, 88], wrapped=True)
+    p("Sources: results/final/classifier_vs_hmm_by_trip.csv and decoder_tuning_folds.csv.", "Evidence")
 
     title("SECTION 6   /   FOLIUM VISUALIZATION", "Student-test trip 00000000")
-    image(RESULTS / "student_test_map.png", 450)
-    p("The Folium export shows raw GPS, the candidate road network, the reference and the HMM route. "
-      "The file includes layer controls and runs offline. This reference overlay is for student-test analysis. "
-      "Official evaluator labels and routes never appear in the demo UI or its exports.")
-    p("Interactive evidence: results/final/student_test_map.html. Recreate it with scripts/final_decode.py.", "Evidence")
+    image(RESULTS / "student_test_map.png", 208)
+    p("Full trip. The raw GPS is navy and dashed, including start and end markers. Gray shows the candidate "
+      "road network, orange the student-test reference, and teal the HMM route.", "Evidence")
+    image(RESULTS / "student_test_map_detail.png", 208)
+    p("Zoomed view near the first GPS observation. Use the layer controls to compare the routes or isolate "
+      "the raw GPS and nearby candidate arcs.", "Evidence")
+    p(f'<a href="{REPO}/blob/main/results/final/student_test_map.html" color="#007e72">Interactive Folium HTML</a>. '
+      "Download the file and open it in a browser for the layer controls. Generate it with scripts/final_decode.py.",
+      "Evidence")
 
-    title("SECTION 7   /   API, UI AND DEPLOYMENT", "Live student-test verification")
-    image(RESULTS / "student_test_ui.png", 345)
-    p("Current student-test UI. The orange dashed GPS trace and teal predicted route can be toggled independently.",
-      "Evidence")
-    p(f"{int((api.status == 200).sum())}/{len(api)} student-test requests returned HTTP 200 and downloadable "
-      f"Folium maps. Median prediction latency was {api.duration_ms.median()/1000:.2f} s. Predictions were "
-      "made without opening the reference. After prediction, only aggregate metrics are returned.")
-    receipt = api.iloc[0]
-    p(f"Earlier acceptance-run response: HTTP {receipt.status}, trip {receipt.trip_id}, request {receipt.request_id}, "
-      f"{receipt.gps_points} points, point Top-1 {pct(receipt.point_top1_accuracy)}.", "Evidence")
-    if api_screenshot is not None:
-        p("Receiving laptop terminal", "Heading2")
-        image(api_screenshot, 155)
+    title("SECTION 7   /   API, UI AND DEPLOYMENT", "Route console")
+    image(RESULTS / "demo_route_console.png", 310)
+    p("Student-test trip 00000040, with 2,995 GPS points and one predicted segment. The result shows 93.1% point "
+      "Top-1 and 90.7% ordered-route F1. Orange marks the GPS trace and teal marks the predicted route.", "Evidence")
+    p("Deployment and acceptance checks", "Heading2")
+    p("Laptop 1 hosts FastAPI, the calibrated model and the decoder. Laptop 2 opens the route console over the LAN, "
+      "selects a trip, and receives the reconstructed geometry and metrics. The server reads the reference only after "
+      "prediction, to compute aggregate scores.")
+    p(f"The recorded student-test acceptance run returned HTTP 200 for {int((api.status == 200).sum())}/{len(api)} "
+      f"trips and downloaded each Folium map. Median server prediction time was {api.duration_ms.median()/1000:.2f} s.")
+    p(f"The Mac recheck reproduced the stored accuracy, ordered-route scores and segment counts for all {len(api_recheck)} "
+      f"trips. Median prediction time was {api_recheck.duration_ms.median()/1000:.2f} s on that host.")
+    p(f'Sources: results/final/api_student_test.csv, api_submission_recheck.csv, and '
+      f'<a href="{REPO}/blob/main/docs/final-release.md" color="#007e72">the deployment guide</a>.', "Evidence")
+
+    title("SECTION 7   /   LIVE HTTP EVIDENCE", "API responses")
+    p("Second laptop terminal", "Heading2")
+    if api_screenshot is None:
+        image(RESULTS / "demo_second_laptop_log.png", 120)
+        p("Team capture from the second laptop. The terminal log records HTTP 200 for three live "
+          "POST /predictions requests on student-test trips 00000065, 00000052 and 00000077. "
+          "Trip 00000065 also emitted a LARGE_GPS_GAP warning.", "Evidence")
     else:
-        p("Recorded API acceptance output", "Heading2")
-        log = (RESULTS / "api_verification.log").read_text(encoding="utf-8")
-        entry = literal_eval(log.splitlines()[0])
-        fields = ("trip_id", "status", "request_id", "gps_points", "check")
-        excerpt = "\n".join(f"{key}: {entry[key]}" for key in fields)
-        story.append(Preformatted(excerpt, styles["Code"]))
-        p("Selected fields from results/final/api_verification.log.", "Evidence")
-    p("Laptop 1 runs the model and API. Laptop 2 opens the UI over the LAN. See docs/final-release.md. "
-      "This is local verification evidence. Capture the receiving laptop terminal and record all ten official "
-      "evaluator choices on the two physical machines during the authorized run.")
-    p("Provenance: team source and experimental artifacts are recorded in Git. AI assisted the independent "
-      "implementation changes, verification scripts, and report drafting. All reported experiments refer to saved runs.",
+        image(api_screenshot, 160)
+        p("API evidence captured on the second laptop.", "Evidence")
+    p("API response body", "Heading2")
+    image(RESULTS / "demo_api_response.png", 215)
+    p("Separate terminal request on the host Mac for student-test trip 00000000. The HTTP 200 response includes "
+      "the request ID, prediction duration and aggregate route metrics. The displayed excerpt omits geometry arrays.",
       "Evidence")
+    p("AI assistance was used for implementation support, verification scripts and report editing. The figures and "
+      "metrics come from the recorded experiments and live captures.", "Evidence")
 
     def footer(canvas, doc):
         width, _ = doc.pagesize
@@ -370,7 +438,7 @@ def make_report(output, plot_dir, api_screenshot=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--api-screenshot", type=Path, help="Screenshot captured on the receiving laptop")
+    parser.add_argument("--api-screenshot", type=Path, help="Optional replacement for the second-laptop capture")
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory() as temporary:

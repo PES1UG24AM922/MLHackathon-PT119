@@ -83,8 +83,9 @@ commands and keep the cache path under the chosen `--work` directory.
 `results/final/` contains the alignment-era comparisons, per-fold and
 Bayesian trial logs, candidate misses, HMM comparison, and student-test
 validation. The historical six-model comparison at `results/model_comparison.csv`
-used earlier nearest-arc labels and has its own replay script. Scores with
-different label versions are not head-to-head results.
+used earlier nearest-arc labels. To replay it, check out `5d2bd93` in a separate
+worktree, place the organizer's extracted `Student folder` beside `src/`, and run
+`python -m src.models.train_compare` with that revision's dependencies.
 
 Five GroupKFold splits isolate training and validation trips. Estimator fits
 use at most 80,000 stratified candidate rows per fit to bound runtime. Validation
@@ -101,6 +102,22 @@ The live API smoke check can be repeated against the local student server:
 ```
 
 The consolidated technical report is at `output/pdf/PathSnap-technical-report.pdf`.
+The report uses the archived release runs for model selection, Bayesian trials,
+and HMM reconstruction. It also uses a separate seven-model diagnostic replay
+on the same student partitions. The replay includes observation-level Macro F1,
+observation-level log loss, and binary candidate confusion counts at threshold
+0.5.
+
+To reproduce the report diagnostics after preparing the student data:
+
+```powershell
+& .\.venv\Scripts\python -m scripts.submission_metrics --data ../pathsnap-student --cache ../pathsnap-student/cache/feature_datasets.joblib --out outputs-local/diagnostics
+```
+
+Use the extracted student directory for `--data` if it was passed to `prepare_student`.
+The four diagnostic CSVs are in `results/final/`. The candidate-miss logs retain
+both the original release run and the report replay.
+
 To rebuild it from the tracked evidence:
 
 ```powershell
@@ -110,5 +127,6 @@ To rebuild it from the tracked evidence:
 
 To reproduce the supplementary MLP training/validation loss curve, run
 `python -m scripts.mlp_validation_history --data ../pathsnap-student` after
-preparing the student data. To include a real capture from the receiving
-laptop, pass `--api-screenshot PATH_TO_CAPTURE.png` when rebuilding the report.
+preparing the student data. The report reads the three committed `demo_*.png`
+captures in `results/final/`. To update the second-laptop screenshot, pass
+`--api-screenshot PATH_TO_CAPTURE.png` when rebuilding the report.
