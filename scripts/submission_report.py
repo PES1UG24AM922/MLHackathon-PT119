@@ -85,6 +85,21 @@ def dataframe(path):
     return pd.read_csv(path, dtype={"trip_id": str})
 
 
+def evaluator_summary(path):
+    run = dataframe(path)
+    manifest = json.loads(Path("configs/inference.final.json").read_text())
+    if (len(run) != 10 or run.trip_id.nunique() != 10 or not run.check.eq("pass").all()
+            or not run.status.eq(200).all()
+            or not run.model_version.eq(manifest["model_version"]).all()
+            or not run.decoder_version.eq(manifest["decoder_version"]).all()):
+        raise ValueError("Expected ten successful evaluator receipts for the submitted model and decoder")
+    if (not run.gps_points.gt(0).all() or not run.point_top1_accuracy.between(0, 1).all()
+            or not run.ordered_route_f1.between(0, 1).all()):
+        raise ValueError("Evaluator receipts contain invalid observation counts or scores")
+    return (int(run.gps_points.sum()), float(np.average(run.point_top1_accuracy, weights=run.gps_points)),
+            float(run.ordered_route_f1.mean()))
+
+
 def make_plots(models, optimization, destinations):
     plt.rcParams.update({"font.size": 10, "axes.spines.right": False, "axes.spines.top": False})
     fig, axes = plt.subplots(2, 2, figsize=(8.5, 5.5), layout="constrained")
@@ -114,7 +129,7 @@ def make_plots(models, optimization, destinations):
     plt.close(fig)
 
 
-def make_report(output, plot_dir, api_screenshot=None):
+def make_report(output, plot_dir, api_screenshot=None, evaluator_results=None):
     eda = dataframe(Path("results/eda_split_summary.csv"))
     misses = dataframe(RESULTS / "replay_candidate_misses.csv")
     diagnostics = dataframe(RESULTS / "student_model_diagnostics.csv")
@@ -198,9 +213,12 @@ def make_report(output, plot_dir, api_screenshot=None):
 
     title("PES UNIVERSITY   /   UE24CS352A   /   TEAM PT119", "PathSnap technical report")
     p("2. Dataset and preprocessing", "Heading2")
+    evaluator_scope = "from preprocessing experiments, training, and tuning." if evaluator_results else (
+        "from preprocessing experiments, training, tuning, and this report."
+    )
     p("PathSnap matches noisy GPS observations to directed road arcs and reconstructs a route. "
       "The development evidence uses 80 training and 10 student-test trips. Reserved evaluator data "
-      "was excluded from preprocessing experiments, training, tuning, and this report.")
+      f"was excluded {evaluator_scope}")
     rows = [["Partition", "Trips", "GPS rows", "Longest gap", "Missing/invalid trips", "Final candidate miss"]]
     for split in ("train", "student_test"):
         data = eda[eda.split == split].iloc[0]
@@ -407,6 +425,12 @@ def make_report(output, plot_dir, api_screenshot=None):
     else:
         image(api_screenshot, 160)
         p("API evidence captured on the second laptop.", "Evidence")
+    if evaluator_results:
+        observations, accuracy, route_f1 = evaluator_summary(evaluator_results)
+        p("Reserved evaluator test", "Heading2")
+        p(f"The saved classifier and HMM decoder passed all ten evaluator trips through the API, including every "
+          f"Folium export. Point Top-1 accuracy was <b>{pct(accuracy)}</b> across {observations:,} GPS observations. "
+          f"Mean ordered-route F1 was <b>{pct(route_f1)}</b> across the ten trips. This was a local evaluation-mode run.")
     p("AI assistance was used for implementation support, verification scripts and report editing. The figures and "
       "metrics come from the recorded experiments and live captures.", "Evidence")
 
@@ -416,7 +440,8 @@ def make_report(output, plot_dir, api_screenshot=None):
         canvas.line(51, 48, width - 51, 48)
         canvas.setFont("PathSnapSans", 8.5)
         canvas.setFillColor(MUTED)
-        canvas.drawString(51, 33, "PT119  /  PathSnap  /  Student data")
+        report_scope = "Technical report" if evaluator_results else "Student data"
+        canvas.drawString(51, 33, f"PT119  /  PathSnap  /  {report_scope}")
         canvas.drawRightString(width - 51, 33, str(doc.page))
 
     SimpleDocTemplate(str(output), title="PathSnap Technical Report", author="Team PT119",
@@ -429,7 +454,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--api-screenshot", type=Path, help="Optional replacement for the second-laptop capture")
+    parser.add_argument("--evaluator-results", type=Path, help="Local evaluator receipts for the private submission PDF")
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory() as temporary:
-        make_report(args.output, Path(temporary), args.api_screenshot)
+        make_report(args.output, Path(temporary), args.api_screenshot, args.evaluator_results)

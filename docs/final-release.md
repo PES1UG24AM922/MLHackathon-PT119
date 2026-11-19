@@ -66,6 +66,17 @@ This checks all ten live predictions and map responses, the UI assets, and
 invalid requests. It writes `api_evaluator_test.csv` under the ignored output
 directory. Evaluator map exports are checked in memory.
 
+To include aggregate evaluator scores in the PDF for the organizers, build a
+local copy from the completed evaluator check:
+
+```bash
+python -m scripts.submission_report outputs-local/PathSnap-technical-report.pdf \
+  --evaluator-results outputs-local/evaluator/api_evaluator_test.csv
+```
+
+Install the report dependencies as described below. Keep this copy with the
+local evaluator output.
+
 ## Reproduce the final experiment
 
 ```powershell
