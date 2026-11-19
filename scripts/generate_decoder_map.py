@@ -20,7 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate an offline PathSnap Folium comparison map.")
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--trip-id", required=True)
-    parser.add_argument("--config", default=str(ROOT / "configs" / "hmm.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "hmm.final.json"))
     parser.add_argument("--output", required=True)
     parser.add_argument("--include-reference", action="store_true", help="Offline report use only")
     args = parser.parse_args()

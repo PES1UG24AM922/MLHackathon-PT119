@@ -9,8 +9,25 @@ $env:PATHSNAP_DATASET = 'C:\path\to\Student folder.zip'
 & .\.venv\Scripts\python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --no-access-log
 ```
 
-Laptop 1 runs that API. On Laptop 2, open `http://LAPTOP_1_IP:8000/` on the
-same LAN. No internet connection is needed for the UI or route exports.
+For the extracted student folder on Fedora, start from the repository root:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e . -r requirements.txt
+unset PATHSNAP_CONFIG
+export PATHSNAP_DATASET="$PWD/.."
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8002 --no-access-log
+```
+
+`PATHSNAP_DATASET` points to the parent of `Student folder`, which the student
+configuration adds to the trip path. Use the same port in the browser and
+acceptance commands as on the server.
+
+Laptop 1 runs that API. On Laptop 2, open `http://LAPTOP_1_IP:8002/ui/` (or
+port 8000 for the PowerShell example) on the same LAN. The street basemap
+requires internet access from Laptop 2. The plain background, route overlays,
+and downloaded Folium maps are available offline.
 Select a trip, run reconstruction, then download its Folium map. If the page
 does not load, check the server's `/ready` response and Laptop 1's inbound
 firewall rule for TCP port 8000. Keep the API on the demonstration network.
@@ -37,6 +54,18 @@ The model receives only track and network geometry. The API reads references
 after prediction and returns only aggregate point Top-1 and ordered-route
 scores. Student-test reference maps are offline report assets.
 
+In a separate terminal, run the authorized checks against the live evaluator
+server using the same port as Uvicorn:
+
+```bash
+python -m scripts.check_api --partition evaluator_test \
+  --base-url http://127.0.0.1:8002 --output outputs-local/evaluator
+```
+
+This checks all ten live predictions and map responses, the UI assets, and
+invalid requests. It writes `api_evaluator_test.csv` under the ignored output
+directory. Evaluator map exports are checked in memory.
+
 ## Reproduce the final experiment
 
 ```powershell
@@ -46,6 +75,10 @@ scores. Student-test reference maps are offline report assets.
 & .\.venv\Scripts\python -m scripts.final_decode --data ../pathsnap-student --cache ../pathsnap-student/cache/feature_datasets.joblib --scores ../pathsnap-student/cache/decoder_scores.npz
 & .\.venv\Scripts\python -m pytest -q
 ```
+
+`prepare_student` also accepts an extracted directory, such as `../Student folder`.
+For that form, use `--data "../Student folder"` in the continuity and decoding
+commands and keep the cache path under the chosen `--work` directory.
 
 `results/final/` contains the alignment-era comparisons, per-fold and
 Bayesian trial logs, candidate misses, HMM comparison, and student-test
@@ -67,9 +100,15 @@ The live API smoke check can be repeated against the local student server:
 & .\.venv\Scripts\python -m scripts.check_api --base-url http://127.0.0.1:8000 --output outputs-local
 ```
 
-To rebuild the consolidated PDF from the tracked evidence:
+The consolidated technical report is at `output/pdf/PathSnap-technical-report.pdf`.
+To rebuild it from the tracked evidence:
 
 ```powershell
 & .\.venv\Scripts\python -m pip install -e '.[report]'
-& .\.venv\Scripts\python -m scripts.submission_report PathSnap-technical-report.pdf
+& .\.venv\Scripts\python -m scripts.submission_report output/pdf/PathSnap-technical-report.pdf
 ```
+
+To reproduce the supplementary MLP training/validation loss curve, run
+`python -m scripts.mlp_validation_history --data ../pathsnap-student` after
+preparing the student data. To include a real capture from the receiving
+laptop, pass `--api-screenshot PATH_TO_CAPTURE.png` when rebuilding the report.

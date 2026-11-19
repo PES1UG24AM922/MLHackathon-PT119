@@ -3,7 +3,8 @@
 The submission build uses ordered-route training labels, a calibrated scorer,
 and the directed HMM decoder. Start with the [final setup and reproduction
 guide](docs/final-release.md). Results for this build are in
-[`results/final/`](results/final/). The rest of this README documents the
+[`results/final/`](results/final/). The [consolidated technical report](output/pdf/PathSnap-technical-report.pdf)
+summarizes the experiments and demo evidence. The rest of this README documents the
 team's standalone decoder workflow.
 
 PathSnap uses a trained candidate scorer and a directed HMM/Viterbi decoder
@@ -101,6 +102,10 @@ different laptop without hard-coded paths. Paths are relative to the manifest.
 For decoder tuning, training scores must be out-of-fold predictions.  Do not
 tune decoder parameters against in-sample model probabilities.
 
+The standalone decode, comparison, and map commands default to
+`configs/hmm.final.json`. The tuning command starts from
+`configs/hmm.yaml`. Use `--config` to select another configuration.
+
 ## Commands
 
 ```bash
@@ -152,12 +157,12 @@ per-point predicted arc IDs when appropriate, warnings, decoder version, and
 elapsed time. Evaluate against reference labels only in a separate server-side
 evaluator; never return those labels to the UI.
 
-## Current integration gate
+## Standalone decoder adapter
 
 `pathsnap.decoder.integration.decode_person1_person2_output()` is the
 label-free bridge for Person 4. It validates Person 1's GPS/nodes/arcs/candidate
 frames, then loads Person 2's model only when its artifact includes a frozen
-feature-schema version, model version, and calibration method. The current
-baseline model artifact must be regenerated after Person 1's alignment work
-with those fields and calibrated out-of-fold scores before it can enter final
-HMM tuning or the API.
+feature-schema version, model version, and calibration method. The release
+API uses the calibrated scorer and decoder pinned by
+`configs/inference.final.json`. Use the final release guide for live runs
+and for rebuilding the training-only out-of-fold scores.

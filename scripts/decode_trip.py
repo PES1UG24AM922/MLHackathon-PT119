@@ -20,7 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Decode one PathSnap trip without labels.")
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--trip-id", required=True)
-    parser.add_argument("--config", default=str(ROOT / "configs" / "hmm.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "hmm.final.json"))
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     manifest_path = Path(args.manifest).resolve()

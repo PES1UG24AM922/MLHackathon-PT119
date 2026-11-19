@@ -1,7 +1,9 @@
 """Build the consolidated report from committed evidence and local demo captures."""
 import argparse
 import json
+from ast import literal_eval
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import matplotlib
 matplotlib.use("Agg")
@@ -12,7 +14,9 @@ from PIL import Image as PixelImage
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import Image, PageBreak, Paragraph, Preformatted, SimpleDocTemplate, Spacer, Table, TableStyle
 
 RESULTS = Path("results/final")
 DARK = colors.HexColor("#16283d")
@@ -85,7 +89,7 @@ def make_plots(models, optimization, destinations):
     plt.close(fig)
 
 
-def make_report(output):
+def make_report(output, plot_dir, api_screenshot=None):
     eda = dataframe(Path("results/eda_split_summary.csv"))
     misses = dataframe(RESULTS / "candidate_miss_rate.csv")
     models = dataframe(RESULTS / "model_comparison.csv")
@@ -98,7 +102,7 @@ def make_report(output):
     decoder = dataframe(RESULTS / "classifier_vs_hmm.csv").set_index("method")
     by_trip = dataframe(RESULTS / "classifier_vs_hmm_by_trip.csv")
     api = dataframe(RESULTS / "api_student_test.csv")
-    make_plots(models, search, RESULTS)
+    make_plots(models, search, plot_dir)
     learning = dataframe(RESULTS / "mlp_learning_history.csv")
     fig, left = plt.subplots(figsize=(8.5, 2.35), layout="constrained")
     right = left.twinx()
@@ -107,10 +111,31 @@ def make_report(output):
     left.set(xlabel="MLP iteration", ylabel="Training loss")
     right.set_ylabel("Internal validation accuracy", color="#b06928")
     right.spines["right"].set_visible(True)
-    fig.savefig(RESULTS / "mlp_learning_history.png", dpi=155, bbox_inches="tight")
+    fig.savefig(plot_dir / "mlp_learning_history.png", dpi=155, bbox_inches="tight")
+    plt.close(fig)
+    grouped_loss = dataframe(RESULTS / "mlp_grouped_loss.csv")
+    fig, ax = plt.subplots(figsize=(8.5, 2.7), layout="constrained")
+    ax.plot(grouped_loss.epoch, grouped_loss.training_log_loss, color="#007e72", label="Fit trips")
+    ax.plot(grouped_loss.epoch, grouped_loss.validation_log_loss, color="#b06928", label="Held-out trips")
+    ax.set(xlabel="Epoch", ylabel="Candidate binary log loss")
+    ax.grid(alpha=.18)
+    ax.legend()
+    fig.savefig(plot_dir / "mlp_grouped_loss.png", dpi=155, bbox_inches="tight")
+    plt.close(fig)
     plt.close(fig)
 
     styles = getSampleStyleSheet()
+    font_dir = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
+    for name, filename in (
+        ("PathSnapSans", "DejaVuSans.ttf"),
+        ("PathSnapSans-Bold", "DejaVuSans-Bold.ttf"),
+        ("PathSnapMono", "DejaVuSansMono.ttf"),
+    ):
+        pdfmetrics.registerFont(TTFont(name, str(font_dir / filename)))
+    pdfmetrics.registerFontFamily("PathSnapSans", normal="PathSnapSans", bold="PathSnapSans-Bold")
+    styles["Title"].fontName = styles["Heading2"].fontName = "PathSnapSans-Bold"
+    styles["BodyText"].fontName = "PathSnapSans"
+    styles["Code"].fontName = "PathSnapMono"
     styles["Title"].alignment = TA_LEFT
     styles["Title"].textColor = DARK
     styles["Title"].fontSize = 25
@@ -118,9 +143,9 @@ def make_report(output):
     styles["Heading2"].textColor = ACCENT
     styles["Heading2"].spaceAfter = 6
     styles["BodyText"].leading = 14
-    styles.add(ParagraphStyle(name="Label", fontName="Helvetica-Bold", fontSize=8.7,
+    styles.add(ParagraphStyle(name="Label", fontName="PathSnapSans-Bold", fontSize=8.7,
                               spaceAfter=8, textColor=ACCENT))
-    styles.add(ParagraphStyle(name="Evidence", fontSize=8.2, leading=11,
+    styles.add(ParagraphStyle(name="Evidence", fontName="PathSnapSans", fontSize=8.2, leading=11,
                               textColor=MUTED, spaceBefore=5, spaceAfter=5))
     story = []
 
@@ -144,7 +169,8 @@ def make_report(output):
         block.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), DARK),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 0), (-1, -1), "PathSnapSans"),
+            ("FONTNAME", (0, 0), (-1, 0), "PathSnapSans-Bold"),
             ("FONTSIZE", (0, 0), (-1, -1), 8),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
             ("TOPPADDING", (0, 0), (-1, -1), 7),
@@ -152,7 +178,7 @@ def make_report(output):
         ]))
         story.extend([block, Spacer(1, 8)])
 
-    title("PATHSNAP   /   TEAM PT119   /   18 NOVEMBER 2026", "Dataset understanding and preprocessing")
+    title("PATHSNAP   /   TEAM PT119   /   19 NOVEMBER 2026", "Dataset understanding and preprocessing")
     p("PathSnap matches noisy GPS observations to directed road arcs and reconstructs a route. "
       "The development evidence uses 80 training and 10 student-test trips. Reserved evaluator data "
       "was excluded from preprocessing experiments, training, tuning, and this report.")
@@ -197,7 +223,7 @@ def make_report(output):
                      pct(row.student_macro_f1), number(row.student_log_loss),
                      pct(row.student_route_continuity), number(row.student_inference_s)])
     table(rows, [86, 49, 59, 64, 51, 58, 66, 59])
-    image(RESULTS / "model_comparison.png", 195)
+    image(plot_dir / "model_comparison.png", 195)
     p("Point Top-1 counts observations whose highest scoring arc equals the aligned target. Candidate macro F1 "
       "and log loss evaluate candidate labels. Continuity is the mean trip fraction of adjacent, time-eligible "
       "predictions sharing an arc or a directed endpoint. Scorer time covers all 10 student-test trips.")
@@ -218,7 +244,7 @@ def make_report(output):
               "The different trip partitions affect the observed gap. Without a separate training-score comparison, "
               "the figures alone do not establish overfitting.")
         if section == "B":
-            image(RESULTS / "mlp_learning_history.png", 138)
+            image(plot_dir / "mlp_learning_history.png", 138)
             p("Actual MLP training loss and internal early-stopping validation accuracy. That internal "
               "candidate split is distinct from the external trip-grouped evaluation.", "Evidence")
             p("Historical experiments before ordered labels", "Heading2")
@@ -234,6 +260,19 @@ def make_report(output):
                 p(f"<b>{key}</b>: {description} Top-1 {pct(row.test_top1_acc)}, macro F1 {pct(row.test_macro_f1)}, "
                   f"log loss {number(row.test_log_loss)}. The older run does not isolate generalization from label changes.")
 
+    title("SECTION 3   /   LEARNING CURVES", "MLP training and validation loss")
+    image(plot_dir / "mlp_grouped_loss.png", 210)
+    p("This supplementary diagnostic used the same MLP width, batch size, learning rate and regularization as "
+      "the model comparison. It used nine fit trips and three held-out trips from the training partition. "
+      "Standardization was fitted on the nine fit trips. Candidate log loss was measured after each epoch "
+      "for both groups. The diagnostic used a fixed epoch count and did not influence model selection.")
+    best_epoch = grouped_loss.loc[grouped_loss.validation_log_loss.idxmin()]
+    last_epoch = grouped_loss.iloc[-1]
+    p(f"Validation log loss reached {number(best_epoch.validation_log_loss)} at epoch "
+      f"{int(best_epoch.epoch)} and ended at {number(last_epoch.validation_log_loss)}. Final fit-trip loss was "
+      f"{number(last_epoch.training_log_loss)}. These curves describe the recorded trip split.")
+    p("Evidence: results/final/mlp_grouped_loss.csv and scripts/mlp_validation_history.py.", "Evidence")
+
     title("SECTION 4   /   BAYESIAN OPTIMIZATION", "Train-fold search and calibration")
     p(f"Optuna TPE searched {optimum['winner']} for {optimum['trials']} trials, beginning with "
       f"{optimum['startup_trials']} startup trials. The objective was mean held-out Top-1 over five training folds. "
@@ -247,7 +286,7 @@ def make_report(output):
          pct(row.student_macro_f1), number(row.student_log_loss), number(row.student_inference_s)]
         for row in bayes.itertuples()
     ], [98, 65, 58, 68, 57, 78, 68])
-    image(RESULTS / "bayesian_history.png", 181)
+    image(plot_dir / "bayesian_history.png", 181)
     diff = (bayes.iloc[1].cv_top1 - bayes.iloc[0].cv_top1) * 100
     p(f"The best searched trial changed mean CV Top-1 by {diff:+.3f} percentage points versus the default. "
       "The release uses that searched configuration with sigmoid calibration fitted from training out-of-fold "
@@ -287,12 +326,25 @@ def make_report(output):
 
     title("SECTION 7   /   API, UI AND DEPLOYMENT", "Live student-test verification")
     image(RESULTS / "student_test_ui.png", 345)
+    p("Current student-test UI. The orange dashed GPS trace and teal predicted route can be toggled independently.",
+      "Evidence")
     p(f"{int((api.status == 200).sum())}/{len(api)} student-test requests returned HTTP 200 and downloadable "
       f"Folium maps. Median prediction latency was {api.duration_ms.median()/1000:.2f} s. Predictions were "
       "made without opening the reference. After prediction, only aggregate metrics are returned.")
     receipt = api.iloc[0]
-    p(f"Verified local response: HTTP {receipt.status}, trip {receipt.trip_id}, request {receipt.request_id}, "
+    p(f"Earlier acceptance-run response: HTTP {receipt.status}, trip {receipt.trip_id}, request {receipt.request_id}, "
       f"{receipt.gps_points} points, point Top-1 {pct(receipt.point_top1_accuracy)}.", "Evidence")
+    if api_screenshot is not None:
+        p("Receiving laptop terminal", "Heading2")
+        image(api_screenshot, 155)
+    else:
+        p("Recorded API acceptance output", "Heading2")
+        log = (RESULTS / "api_verification.log").read_text(encoding="utf-8")
+        entry = literal_eval(log.splitlines()[0])
+        fields = ("trip_id", "status", "request_id", "gps_points", "check")
+        excerpt = "\n".join(f"{key}: {entry[key]}" for key in fields)
+        story.append(Preformatted(excerpt, styles["Code"]))
+        p("Selected fields from results/final/api_verification.log.", "Evidence")
     p("Laptop 1 runs the model and API. Laptop 2 opens the UI over the LAN. See docs/final-release.md. "
       "This is local verification evidence. Capture the receiving laptop terminal and record all ten official "
       "evaluator choices on the two physical machines during the authorized run.")
@@ -304,12 +356,13 @@ def make_report(output):
         width, _ = doc.pagesize
         canvas.setStrokeColor(colors.HexColor("#dee7ee"))
         canvas.line(51, 48, width - 51, 48)
-        canvas.setFont("Helvetica", 8.5)
+        canvas.setFont("PathSnapSans", 8.5)
         canvas.setFillColor(MUTED)
         canvas.drawString(51, 33, "PT119  /  PathSnap  /  Student data")
         canvas.drawRightString(width - 51, 33, str(doc.page))
 
-    SimpleDocTemplate(str(output), leftMargin=51, rightMargin=51, topMargin=37, bottomMargin=61).build(
+    SimpleDocTemplate(str(output), title="PathSnap Technical Report", author="Team PT119",
+                      leftMargin=51, rightMargin=51, topMargin=37, bottomMargin=61).build(
         story, onFirstPage=footer, onLaterPages=footer
     )
 
@@ -317,4 +370,8 @@ def make_report(output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    make_report(parser.parse_args().output)
+    parser.add_argument("--api-screenshot", type=Path, help="Screenshot captured on the receiving laptop")
+    args = parser.parse_args()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory() as temporary:
+        make_report(args.output, Path(temporary), args.api_screenshot)

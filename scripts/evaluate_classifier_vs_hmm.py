@@ -27,7 +27,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Offline classifier-vs-HMM evaluation.")
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--partition", default="student_test")
-    parser.add_argument("--config", default=str(ROOT / "configs" / "hmm.yaml"))
+    parser.add_argument("--config", default=str(ROOT / "configs" / "hmm.final.json"))
     parser.add_argument("--output", default=str(ROOT / "results" / "classifier_vs_hmm.csv"))
     args = parser.parse_args()
     manifest_path = Path(args.manifest).resolve()
